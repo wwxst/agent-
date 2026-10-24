@@ -17,11 +17,13 @@
 | 06 | [扩展与多智能体](06-扩展与多智能体.md) | Hooks、Skills、MCP、Subagents |
 | 07 | [客户端协议](07-客户端协议.md) | HTTP/SSE、事件游标、幂等、错误码 |
 | 08 | [开发路线与验收](08-开发路线与验收.md) | M0-M4 阶段、测试矩阵、完成条件 |
+| 09 | [DeepSeek Harness 借鉴评估](09-DeepSeek-Harness-借鉴评估.md) | Cordis、可组合能力、Scope 与可信内核边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
+| ADR | [ADR 0002：能力组合与可信内核边界](adr/0002-能力组合与可信内核边界.md) | 插件能替换什么、不能替换什么 |
 
 ## 设计来源
 
-项目研究 Pi 的 Agent Loop、Codex 的事件/会话/执行隔离，以及 Claude Code 的 Hooks/Skills/Subagents；但核心状态机、执行调度与公共协议由本项目自主实现。参考项目只是研究对象，不是本项目已经接入的运行依赖。
+项目研究 Pi 的 Agent Loop、Codex 的事件/会话/执行隔离，以及 Claude Code 的 Hooks/Skills/Subagents，另研究 DeepSeek Harness 的组件组合、Scoped Registration、Profile 和可逆生命周期；但核心状态机、执行调度与公共协议由本项目自主实现。参考项目只是研究对象，不是本项目已经接入的运行依赖。
 
 ## 与外部仓库的关系
 
