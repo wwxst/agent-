@@ -2,7 +2,7 @@
 
 > **项目阶段：v0.1 设计草案** · **代码状态：尚未开始实现** · **最后更新：2026-10-24**
 
-本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
+本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
 **注意：当前只有设计文档，没有可运行的 Agent Kernel。文档中的接口、模块和能力均为计划目标，不代表已经实现。**
 
@@ -22,6 +22,7 @@
 | [Pi Agent](https://github.com/earendil-works/pi) | 简洁的 Agent Loop、工具和模型流式抽象 | 由本项目实现 Loop，不直接依赖 Pi 内核 |
 | [OpenAI Codex](https://github.com/openai/codex) | Session/Turn、事件、审批、上下文和执行隔离 | 重新定义自己的状态机与协议 |
 | [Claude Code](https://code.claude.com/docs/en/agent-sdk/overview) | Hooks、Skills、权限、多 Agent 扩展 | 扩展不能破坏 Kernel 安全边界 |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | 能力组合、插件作用域、可逆生命周期、Profile | 核心状态机、授权和持久化语义不可由普通插件接管 |
 
 ## 三、中文设计文档
 
@@ -36,10 +37,12 @@
 7. [Hooks、Skills、MCP 与 Subagents](docs/06-扩展与多智能体.md)
 8. [客户端 API 与事件协议](docs/07-客户端协议.md)
 9. [开发路线、测试矩阵与验收](docs/08-开发路线与验收.md)
+10. [DeepSeek Harness 架构研究与借鉴评估](docs/09-DeepSeek-Harness-借鉴评估.md)
 
 附加约束：
 
 - [ADR 0001：自主实现内核与宿主隔离（提议）](docs/adr/0001-自主内核与宿主隔离.md)
+- [ADR 0002：能力组合与可信内核边界（提议）](docs/adr/0002-能力组合与可信内核边界.md)
 - [AGENTS.md：AI 开发协作规则](AGENTS.md)
 
 ## 四、第一版范围（拟议）
