@@ -39,12 +39,13 @@
 9. [开发路线、测试矩阵与验收](docs/08-开发路线与验收.md)
 10. [DeepSeek Harness 架构研究与借鉴评估](docs/09-DeepSeek-Harness-借鉴评估.md)
 11. [Claude Code 2.1.304/2.1.88 内核源码追踪（第一轮）](docs/10-Claude-Code-内核源码追踪.md)
-12. [Claude Code 第二轮深入源码研究（五篇中文文档）](docs/research/claude-code/README.md)
+12. [Claude Code 多轮深入源码研究（含沙箱、SDK、Bridge）](docs/research/claude-code/README.md)
 
 附加约束：
 
 - [ADR 0001：自主实现内核与宿主隔离（提议）](docs/adr/0001-自主内核与宿主隔离.md)
 - [ADR 0002：能力组合与可信内核边界（提议）](docs/adr/0002-能力组合与可信内核边界.md)
+- [ADR 0003：远程事件 ACK、持久接受和工具执行收据（提议）](docs/adr/0003-远程控制事件确认与执行收据.md)
 - [AGENTS.md：AI 开发协作规则](AGENTS.md)
 
 ## 四、第一版范围（拟议）
