@@ -38,6 +38,7 @@
 8. [客户端 API 与事件协议](docs/07-客户端协议.md)
 9. [开发路线、测试矩阵与验收](docs/08-开发路线与验收.md)
 10. [DeepSeek Harness 架构研究与借鉴评估](docs/09-DeepSeek-Harness-借鉴评估.md)
+11. [Claude Code 2.1.304/2.1.88 内核源码追踪（第一轮）](docs/10-Claude-Code-内核源码追踪.md)
 
 附加约束：
 
