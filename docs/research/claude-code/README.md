@@ -1,5 +1,7 @@
 # Claude Code 内核源码研究：证据索引与研究方法
 
+> **更新（2026-10-25）**：已重新直接打开用户 ZIP，复核 Claude CLI 2.1.304 新版沙箱与 Desktop 3.1623.1 的 SDK ProcessTransport，并在 [新版直接证据报告](../comparative/01-Claude-Code-2.1.304-新版复核.md) 记录模块 SHA-256 和字符偏移。早期文档关于 ZIP 无法读取或 Desktop SDK 完全未知的状态，已由该新版报告部分更新；真实 Desktop UI→IPC Channel 仍需继续验证。
+
 > 研究日期：2026-10-24；状态：第二轮静态分析；不代表运行测试通过。  
 > 研究范围：用户上传的 Claude Code CLI 2.1.304 / Claude Desktop 3.1623.1 样本，以及用户公开仓库 wwxst/- 中的 Claude Code 2.1.88 Source Map 还原文件。
 
