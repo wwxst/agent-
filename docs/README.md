@@ -19,10 +19,11 @@
 | 08 | [开发路线与验收](08-开发路线与验收.md) | M0-M4 阶段、测试矩阵、完成条件 |
 | 09 | [DeepSeek Harness 借鉴评估](09-DeepSeek-Harness-借鉴评估.md) | Cordis、可组合能力、Scope 与可信内核边界 |
 | 10 | [Claude Code 内核源码追踪（第一轮）](10-Claude-Code-内核源码追踪.md) | 2.1.304 Agent Loop、ToolCall、权限、回填和 2.1.88 对照 |
-| 11–18 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、流式工具并发、权限、压缩、子 Agent、沙箱、SDK 控制协议、远程恢复 |
+| 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
 | ADR | [ADR 0002：能力组合与可信内核边界](adr/0002-能力组合与可信内核边界.md) | 插件能替换什么、不能替换什么 |
 | ADR | [ADR 0003：远程 ACK 与工具收据](adr/0003-远程控制事件确认与执行收据.md) | 区分传输确认、持久接受、执行开始、执行结束 |
+| ADR | [ADR 0004：工具隔离与中断语义](adr/0004-工具执行隔离与中断语义.md) | 沙箱强制执行、内部字段信任边界、Interrupt/Cancel/Background |
 
 ## 设计来源
 
