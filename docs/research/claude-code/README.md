@@ -18,6 +18,9 @@
 7. [17 SDK 控制协议与审批竞态](17-SDK控制协议与审批竞态.md)：PermissionRequest 与 SDK 并发、取消、去重。
 8. [18 远程 Bridge 与恢复边界](18-远程Bridge事件确认与恢复.md)：消息 ACK、Worker Epoch、SSE 游标及副作用未知状态。
 9. [ADR 0003 远程控制事件确认与执行收据](../../adr/0003-远程控制事件确认与执行收据.md)：自研项目正式待审议的可靠性方案。
+10. [19 Shell 实际执行与取消语义](19-Shell实际执行与取消语义.md)：模型参数、Shell Provider、沙箱包装、spawn、输出安全、Interrupt 与 Cancel。
+11. [20 CLI 子进程协议与 Desktop 证据边界](20-CLI子进程协议与Desktop证据边界.md)：stdio NDJSON、Bridge、审批竞态；明确 Desktop 3.1623.1 IPC 尚未核实。
+12. [ADR 0004 工具隔离与中断状态](../../adr/0004-工具执行隔离与中断语义.md)：可验证隔离、工具特权字段、Interrupt/Cancel/Background 分离。
 
 ## 证据如何定位
 
