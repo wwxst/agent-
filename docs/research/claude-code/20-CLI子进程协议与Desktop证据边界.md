@@ -1,5 +1,7 @@
 # 20 · Claude Code CLI 子进程控制协议、Bridge 边界与 Desktop 尚未核实的部分
 
+> **后续更新（2026-10-25）**：已直接读取用户 ZIP 中 Desktop 3.1623.1 的 `index.chunk-J7YnW_mh.js`，确认 SDK `ProcessTransport` 的本地 `spawn`、`stream-json` CLI 参数及 `control_request` 处理，详见 [新版证据报告](../comparative/01-Claude-Code-2.1.304-新版复核.md)。本文原本“ZIP 不可读取”的描述记录的是前次工具限制，已不代表当前材料可见性；但具体 UI→Electron IPC channel→SDK 调用链仍未全量追踪。
+
 > 研究日期：2026-10-25。  
 > **已直接验证：用户旧仓库 wwxst/- 的 Claude Code 2.1.88 文件。**  
 > **未验证：Claude Desktop 3.1623.1 原生 IPC / SDK→CLI 进程拓扑，以及 Claude Code 2.1.304 同版本执行路径。** 项目上传 ZIP 在本轮访问时存在运行环境读取障碍，未据附件自带报告补猜。
