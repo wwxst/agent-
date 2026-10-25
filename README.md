@@ -1,6 +1,6 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 设计草案** · **代码状态：尚未开始实现** · **最后更新：2026-10-24**
+> **项目阶段：v0.1 设计草案** · **代码状态：尚未开始实现** · **最后更新：2026-10-25**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
@@ -40,6 +40,7 @@
 10. [DeepSeek Harness 架构研究与借鉴评估](docs/09-DeepSeek-Harness-借鉴评估.md)
 11. [Claude Code 2.1.304/2.1.88 内核源码追踪（第一轮）](docs/10-Claude-Code-内核源码追踪.md)
 12. [Claude Code 多轮源码研究（含沙箱、Shell 执行、SDK、Bridge）](docs/research/claude-code/README.md)
+13. **[四套 Agent 内核源码对照与自研取舍（新版专题）](docs/research/comparative/README.md)**：Pi / Codex / Claude Code 2.1.304 / DeepSeek Harness，固定源码版本、机制证据、候选方案和待验证测试。
 
 附加约束：
 
