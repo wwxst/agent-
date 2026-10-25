@@ -1,6 +1,6 @@
 # 四套 Agent 内核源码研究与自研架构取舍
 
-> 2026-10-25 · 文档状态：**静态源码研究完成一轮；动态实验与全部异常路径研究仍未完成；候选设计尚未定案。**
+> 2026-10-25 · 文档状态：**静态源码研究已推进到产品宿主与执行边界；动态实验与全部异常路径研究仍未完成；候选设计尚未定案。**
 
 本目录把四个参考内核放在**同一证据规则**下研究：不只是列出它们的产品功能，而是追踪实际 Agent Loop、工具/权限、上下文、Session 事实和失败恢复，并为我们的第五套 Agent Kernel 提出可验证的取舍。
 
@@ -15,6 +15,11 @@
 | [04 DeepSeek Harness 源码研究](04-DeepSeek-Harness-源码研究.md) | Cordis Scope、Session Event、工具批次、append/flush 与恢复 |
 | [05 四套机制取舍与候选架构](05-架构取舍与候选设计.md) | 目前可支持的技术建议，**尚未冻结** |
 | [06 研究缺口、运行验证与完成门槛](06-未完成事项与验证计划.md) | 18 项故障/安全/状态测试、未完成调查项目 |
+| [07 Pi Coding Agent 产品层](07-Pi-Coding-Agent-上层会话扩展与Shell.md) | 会话树、Fork、Context Edit、压缩切点、Extension 和 Shell |
+| [08 Codex App Server 与持久化](08-Codex-AppServer-指令审批与持久化屏障.md) | Turn Start/Steer/Interrupt、审批优先级、Rollout 写入与 SQLite 投影 |
+| [09 DeepSeek 工具管线和 PTC](09-DeepSeek-工具执行管线与PTC隔离.md) | Native/PTC Executor、Guard、嵌套工具和隔离要求 |
+| [10 Claude Desktop SDK 进程控制](10-Claude-Desktop-SDK-进程控制与错误边界.md) | 进程参数、控制消息、senderFrame 校验、错误分类 |
+| **[11 四内核不变量与评审门槛](11-跨内核不变量与架构评审门槛.md)** | 12 条执行不变量、测试门槛与候选方案决策闸门 |
 
 原 Claude Code 专题分析及 2.1.88 Source Map 研究还在 [旧版与专题目录](../claude-code/README.md)；本轮新版文件研究以 **01** 为准。
 
