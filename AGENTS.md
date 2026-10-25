@@ -11,6 +11,8 @@
 
 ## 二、开始前必须阅读
 
+**跨内核研究先读**：[四套内核证据登记](docs/research/comparative/00-研究方法与证据登记.md)、[源码研究总目录](docs/research/comparative/README.md) 和 [验证门槛](docs/research/comparative/06-未完成事项与验证计划.md)。当研究文档写着“候选”“提议”“未验证”时，AI 不得擅自把它升级成既定架构、通过测试或性能结论。
+
 1. 根目录 README.md 和 [中文设计目录](docs/README.md)。
 2. 与任务相关的设计文档，包括状态机、事件日志、工具安全与客户端协议。
 3. 影响架构时检查 docs/adr/；有冲突先提出新 ADR，不得静默修改已确定的设计。
