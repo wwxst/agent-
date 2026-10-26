@@ -28,9 +28,21 @@ export type ProviderEvent =
       message: AssistantMessage;
       finishReason: 'stop' | 'tool_use' | 'length';
     }>;
+/** Frozen per model step: a provider cannot silently see the next step’s tool catalog. */
+export interface ModelStepRequest {
+  readonly stepId: string;
+  readonly toolSetVersion: number;
+  readonly tools: readonly ToolSpec[];
+}
+export interface ToolSpec {
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly inputSchema: unknown;
+}
 export interface ModelProvider {
   readonly id: string;
-  stream(messages: readonly ContextMessage[], signal: AbortSignal): AsyncIterable<ProviderEvent>;
+  stream(messages: readonly ContextMessage[], signal: AbortSignal, step?: ModelStepRequest): AsyncIterable<ProviderEvent>;
 }
 
 export type Risk = 'read' | 'write' | 'external_side_effect';
@@ -40,6 +52,8 @@ export interface ToolDefinition {
   readonly version: string;
   readonly risk: Risk;
   readonly concurrency: Concurrency;
+  readonly description?: string;
+  readonly inputSchema?: unknown;
   /** Must validate and normalize untrusted model arguments; must not have side effects. */
   parse(input: unknown): unknown;
   /** Fake/read-only host for M0 only. A production Host must return a separate receipt. */
@@ -50,7 +64,8 @@ export type TurnState = 'queued' | 'running_model' | 'running_tools' | 'cancelli
 export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.result'
-  | 'turn.completed' | 'turn.failed' | 'turn.cancelled';
+  | 'turn.completed' | 'turn.failed' | 'turn.cancelled'
+  | 'turn.steer_queued' | 'turn.steer_consumed';
 
 export interface EventDraft {
   readonly type: KernelEventType;
