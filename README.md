@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 设计草案** · **代码状态：尚未开始实现** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 已实现并通过离线测试（非生产就绪）** · **最后更新：2026-10-26**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：当前只有设计文档，没有可运行的 Agent Kernel。文档中的接口、模块和能力均为计划目标，不代表已经实现。**
+**注意：M0 自主内核现已有可运行 TypeScript 代码，后续 M1–M4（真实 Provider、隔离 Tool Host、SQLite、Subagent 等）仍属计划。** 具体边界见 [M0 源码与运行说明](m0/README.md)。
 
 ## 一、项目目标
 
@@ -60,11 +60,12 @@
 
 ## 五、代码与集成状态
 
-- **代码**：未开始。当前没有可执行程序、API 服务或运行通过的测试。
-- **协议**：v0.1 设计草案；实现前以类型定义、Schema 和 ADR 进一步确认。
-- **外部系统**：未来可为 `wwxst/agent-web`、`wwxst/agent-cil` 提供适配层，需先审查这些仓库实际接口。
-- **分支**：详细设计在 `docs/agent-kernel-design-v0.1` 中编写，尚未合并到主分支。
+- **M0 已实现**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler` 和 `packages/event-store-memory`；`tests/kernel.test.ts` 含 17 项离线确定性测试。
+- **本地验证**：Node.js 22.16.0、TypeScript 严格检查 `npm run check` 通过，`npm test` 编译与 17 项测试通过；远程代码与通过测试的本地文件经 Git Blob SHA 核对一致。
+- **不具备**：真实模型、OS 沙箱、SQLite 事务持久化、外部工具收据、MCP/Skills、Subagent 和桌面/Web API。当前禁止不受信任执行工具。
+- **安装和测试**：Node.js >=22；`npm install`、`npm run check`、`npm test`；此环境未能生成离线 package-lock，安装需可用 npm registry。
+- **开发分支**：`feat/kernel-m0-foundation`；来源是 `docs/agent-kernel-design-v0.1`，均未合并到 `main`。
 
 ## 六、下一步
 
-先完成基础类型合同、FakeProvider、MemoryEventStore、FakeToolHost 和可重复测试的独立 Agent Loop，再逐步交付真实 Provider、隔离的文件/Shell 工具及客户端连接。
+巩固 M0 的协议和测试，在后续独立阶段加入真实 Provider、预算与 Steering，再引入 SQLite 事务日志、权限和独立 OS Tool Host。完整目标保持不变，逐步验证实现。
