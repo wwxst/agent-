@@ -1,14 +1,19 @@
 {
-  "name": "agent-kernel-m0",
+  "name": "agent-kernel",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Independent Agent Kernel M0: deterministic runtime and contracts (no third-party agent runtime)",
+  "description": "Independent Agent Kernel with M0 runtime and opt-in SQLite WAL journal (M1 incremental)",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "check": "tsc -p tsconfig.json --noEmit"
   },
-  "engines": { "node": ">=22" },
-  "devDependencies": { "typescript": "^5.9.3", "@types/node": "^22.15.0" }
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.15.0"
+  }
 }
