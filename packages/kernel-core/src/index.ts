@@ -223,8 +223,8 @@ export class AgentKernel {
           receiptByCall.set(data.callId, {receiptId:data.receiptId, outcome:data.outcome, ...(event.turnId ? {turnId:event.turnId} : {})});
         }
         for (const intent of intents) {
-          if (intent.status !== 'settled') {
-            throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unsettled tool intent may have executed; reconcile the Host before continuing');
+          if (intent.status !== 'settled' || intent.outcome === 'outcome_unknown') {
+            throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unsettled or unknown tool outcome requires explicit reconciliation');
           }
           const receipt = receiptByCall.get(intent.callId);
           if (!intent.receiptId || !receipt ||
