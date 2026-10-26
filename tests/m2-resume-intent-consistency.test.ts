@@ -75,6 +75,33 @@ test('M2 recovery: explicit outcome_unknown reconciliation still forbids automat
   });
 });
 
+test('M2 recovery: recorded receipt reporting an UNKNOWN outcome is not a success', async () => {
+  await withDb(async db => {
+    const id = 'acknowledged-unknown';
+    await db.append(id, 0, [{ type: 'session.created', data: {} }]);
+    await db.append(id, 1, [
+      { type: 'turn.queued', turnId: 't1', data: {} },
+      { type: 'user.message', turnId: 't1', data: { text: 'read' } },
+      { type: 'turn.started', turnId: 't1', data: {} },
+      { type: 'assistant.message', turnId: 't1',
+        data: { role: 'assistant', text: '', toolCalls: [call] } },
+    ]);
+    await db.recordToolIntent(id, 5, 't1', call, '1', { path: 'safe' });
+    await db.recordLocalReceipt(id, 6, 't1', {
+      callId: 'c1', name: 'read', outcome: 'outcome_unknown', content: 'HOST_OUTCOME_NOT_CONFIRMED',
+    });
+    await db.append(id, 7, [
+      { type: 'tool.result', turnId: 't1',
+        data: { callId: 'c1', name: 'read', outcome: 'outcome_unknown', content: 'HOST_OUTCOME_NOT_CONFIRMED' } },
+      { type: 'turn.cancelled', turnId: 't1', data: { errorCode: 'CANCELLED' } },
+    ]);
+    const intent = (await db.listToolIntents(id))[0];
+    assert.equal(intent?.status, 'outcome_unknown');
+    assert.ok(intent?.receiptId);
+    await assert.rejects(recovering(db).resumeSession(id), { code: 'SESSION_RECOVERY_REQUIRED' });
+  });
+});
+
 test('M2 recovery: complete tool receipt allows safe reattachment and a new turn', async () => {
   await withDb(async db => {
     const registry = new ToolRegistry();
