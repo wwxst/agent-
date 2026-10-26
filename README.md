@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 已实现并通过离线测试（非生产就绪）** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 会话重开/SQLite WAL 增量已实现（非生产就绪）** · **最后更新：2026-10-26**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 自主内核现已有可运行 TypeScript 代码，后续 M1–M4（真实 Provider、隔离 Tool Host、SQLite、Subagent 等）仍属计划。** 具体边界见 [M0 源码与运行说明](m0/README.md)。
+**注意：M0 Agent Loop 已实现，M1 当前只实现会话安全重开与 SQLite WAL 日志。** 剩余恢复协议、单写者租约、真实 Provider、隔离 Tool Host 和 Subagent 等仍未完成。详见 [M0 运行说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md) 与 [M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md)。
 
 ## 一、项目目标
 
@@ -42,6 +42,8 @@
 12. [Claude Code 多轮源码研究（含沙箱、Shell 执行、SDK、Bridge）](docs/research/claude-code/README.md)
 13. **[四套 Agent 内核源码对照与自研取舍（持续深研）](docs/research/comparative/README.md)**：Pi 的 Coding Agent 产品层、Codex 的 App Server/持久化、Claude Code 2.1.304/Desktop、DeepSeek Native/PTC，并记录 [12 条执行不变量](docs/research/comparative/11-跨内核不变量与架构评审门槛.md)。
 14. **[四内核证据审计与正式技术取舍](docs/research/comparative/14-自研内核架构取舍正式评审稿.md)**：推荐 TS Kernel、SQLite WAL、可信 Tool Host、S2 调度。详见 [研究完成边界](docs/research/comparative/15-研究完成判据与剩余缺口.md)，未运行测试不得称完成。
+15. [M1 安全重开与恢复边界](docs/11-M1-会话重开与恢复边界.md)：日志结构验证、未决 Turn 停机保护。
+16. [M1 SQLite WAL 事件日志](docs/12-M1-SQLite-WAL-事件日志.md)：事务 CAS、测试证据、未实现的租约与执行收据。
 
 附加约束：
 
@@ -60,12 +62,13 @@
 
 ## 五、代码与集成状态
 
-- **M0 已实现**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler` 和 `packages/event-store-memory`；`tests/kernel.test.ts` 含 17 项离线确定性测试。
-- **本地验证**：Node.js 22.16.0、TypeScript 严格检查 `npm run check` 通过，`npm test` 编译与 17 项测试通过；远程代码与通过测试的本地文件经 Git Blob SHA 核对一致。
-- **不具备**：真实模型、OS 沙箱、SQLite 事务持久化、外部工具收据、MCP/Skills、Subagent 和桌面/Web API。当前禁止不受信任执行工具。
-- **安装和测试**：Node.js >=22；`npm install`、`npm run check`、`npm test`；此环境未能生成离线 package-lock，安装需可用 npm registry。
-- **开发分支**：`feat/kernel-m0-foundation`；来源是 `docs/agent-kernel-design-v0.1`，均未合并到 `main`。
+- **M0（已合并 main）**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler`、`packages/event-store-memory`；17 项离线确定性测试。
+- **M1 安全重开（已合并 main）**：`AgentKernel.openSession()` 校验既有完整会话日志，遇未结束 Turn 返回 `RECOVERY_REQUIRED` 而非自动执行；新增 4 项测试。
+- **M1 SQLite WAL（本开发阶段）**：`packages/event-store-sqlite` 使用 Node 自带 `node:sqlite`，实现事务 compare-and-append、SQLite 文件级重开和 read cursor；新增 5 项测试（含 SIGKILL 重开）。M1 的存储接口**不等于**完整恢复系统。
+- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，合计 26 项确定性测试；结果以具体 workflow run 为准。
+- **仍未具备**：真实模型、跨进程 Session 独占执行租约、Tool Intent/Receipt、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-巩固 M0 的协议和测试，在后续独立阶段加入真实 Provider、预算与 Steering，再引入 SQLite 事务日志、权限和独立 OS Tool Host。完整目标保持不变，逐步验证实现。
+先实现跨实例 Session writer lease/fencing 与 Tool Intent/Receipt 的故障恢复协议，再接入独立可信 Tool Host、安全审批与真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
