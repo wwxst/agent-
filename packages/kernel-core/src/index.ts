@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
+import {admitContext} from '../../context-engine/src/index.js';
 
 interface Steering { readonly text: string; readonly ready: Promise<unknown>; }
 interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; steering: Steering[]; }
-export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; }
+export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly maxContextCharacters?: number; }
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
 
@@ -17,12 +18,17 @@ export class AgentKernel {
   private readonly creating = new Set<SessionId>();
   private readonly maxSteps: number;
   private readonly maxToolCalls: number;
+  private readonly maxContextCharacters: number | undefined;
   constructor(private readonly store: EventStore, private readonly provider: ModelProvider,
     private readonly tools: ToolRegistry, options: KernelOptions = {}, private readonly onDelta?: DeltaListener) {
     this.maxSteps = options.maxSteps ?? 8;
     this.maxToolCalls = options.maxToolCalls ?? 16;
+    this.maxContextCharacters = options.maxContextCharacters;
     if (!Number.isSafeInteger(this.maxSteps) || this.maxSteps < 1 || !Number.isSafeInteger(this.maxToolCalls) || this.maxToolCalls < 0) {
       throw new KernelError('INVALID_BUDGET', 'maxSteps must be positive, maxToolCalls nonnegative');
+    }
+    if (this.maxContextCharacters !== undefined && (!Number.isSafeInteger(this.maxContextCharacters) || this.maxContextCharacters < 1)) {
+      throw new KernelError('INVALID_CONTEXT_BUDGET', 'maxContextCharacters must be a positive integer');
     }
   }
 
@@ -136,8 +142,12 @@ export class AgentKernel {
           toolSetVersion: boundTools.version,
           tools: boundTools.modelSpecs(),
         };
-        await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, ...stepAdmission } });
         const messages = await this.context(sessionId);
+        // No silent truncation and no model call if the context exceeds the configured safety cap.
+        const admission = this.maxContextCharacters === undefined ? undefined :
+          admitContext(messages, stepAdmission, {maxSerializedCharacters: this.maxContextCharacters});
+        await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, ...stepAdmission,
+          ...(admission === undefined ? {} : {contextSize: admission.serializedCharacters, contextLimit: admission.limit}) } });
         let completed: { message: AssistantMessage; finishReason: 'stop' | 'tool_use' | 'length' } | undefined;
         for await (const event of this.provider.stream(messages, ctl.controller.signal, stepAdmission)) {
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
