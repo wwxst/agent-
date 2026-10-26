@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 已实现并通过离线测试（非生产就绪）** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 第一批已实现（31 项离线测试通过，非生产就绪）** · **最后更新：2026-10-26**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 自主内核现已有可运行 TypeScript 代码，后续 M1–M4（真实 Provider、隔离 Tool Host、SQLite、Subagent 等）仍属计划。** 具体边界见 [M0 源码与运行说明](m0/README.md)。
+**注意：M0 已合并 main，M1 第一批已在开发分支实现 OpenAI 兼容 Chat Completions SSE Provider、Step ToolSet 快照和 Steering；没有真实 API 密钥联调。M1 其余能力及 M2–M4 仍待开发。** 参见 [M0 说明](m0/README.md) 与 [M1 第一批说明](m1/README.md)。
 
 ## 一、项目目标
 
@@ -60,12 +60,13 @@
 
 ## 五、代码与集成状态
 
-- **M0 已实现**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler` 和 `packages/event-store-memory`；`tests/kernel.test.ts` 含 17 项离线确定性测试。
-- **本地验证**：Node.js 22.16.0、TypeScript 严格检查 `npm run check` 通过，`npm test` 编译与 17 项测试通过；远程代码与通过测试的本地文件经 Git Blob SHA 核对一致。
-- **不具备**：真实模型、OS 沙箱、SQLite 事务持久化、外部工具收据、MCP/Skills、Subagent 和桌面/Web API。当前禁止不受信任执行工具。
-- **安装和测试**：Node.js >=22；`npm install`、`npm run check`、`npm test`；此环境未能生成离线 package-lock，安装需可用 npm registry。
-- **开发分支**：`feat/kernel-m0-foundation`；来源是 `docs/agent-kernel-design-v0.1`，均未合并到 `main`。
+- **M0 已合并 main**：自主 Agent Loop、MockProvider、只读 Tool Scheduler、内存 EventStore 和 17 项基础测试。
+- **M1 第一批（本开发分支）**：OpenAI 兼容 Chat Completions SSE Adapter、Step ToolSet 绑定、按 Turn ID Steering、基本真实模型文本 CLI；新增 14 项协议/竞态测试，合计 **31 项测试通过**。
+- **验证范围**：Node.js 22.16.0、`npm run check` 和 `npm test` 通过；新 Provider 的 HTTP 流使用模拟 Fetch，不代表已经用实际付费模型联调。查看 [M1 开发说明](m1/README.md)。
+- **仍未具备**：原生 Anthropic/Responses 全部接口、OS 沙箱、SQLite 事务持久化、审批凭据、外部工具收据、MCP/Skills、Subagent、Web/Desktop API。**不得注册不可信/高风险工具。**
+- **安装与验证**：Node.js >=22；`npm install`、`npm run check`、`npm test`；目前无法离线生成 package-lock，首次安装需要 npm registry。
+- **分支**：M0 和设计研究已进入 `main`；M1 在 `feat/kernel-m1-provider-stream`，尚未合并。
 
 ## 六、下一步
 
-巩固 M0 的协议和测试，在后续独立阶段加入真实 Provider、预算与 Steering，再引入 SQLite 事务日志、权限和独立 OS Tool Host。完整目标保持不变，逐步验证实现。
+继续 M1：补全 Provider 能力与协议兼容测试、精细化 Context/预算入场；然后进入 M2 的 SQLite DurableEventStore、可信 ApprovalRoot 与独立 ToolHost。
