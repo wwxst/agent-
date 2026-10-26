@@ -197,6 +197,40 @@ export class AgentKernel {
       if (activeTurn !== undefined) {
         throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unclosed Turn needs explicit reconciliation; automatic ToolCall replay is forbidden');
       }
+      if (isDurableExecutionStore(this.store)) {
+        // A tool.result can be a synthetic "outcome_unknown" generated after cancellation.
+        // Pairing model messages is NOT equivalent to a committed Host receipt.
+        // Never resume an apparently closed Turn while its physical execution
+        // intent is pending or has been reconciled as outcome_unknown.
+        const intents = await this.store.listToolIntents(sessionId);
+        const receiptEvents = events.filter(event => event.type === 'tool.local_receipt');
+        const receiptByCall = new Map<string, { receiptId: string; outcome: string; turnId?: string }>();
+        for (const event of receiptEvents) {
+          const data = event.data as {callId?: unknown; receiptId?: unknown; outcome?: unknown} | null;
+          if (typeof data?.callId !== 'string' || !data.callId ||
+              typeof data.receiptId !== 'string' || !data.receiptId ||
+              typeof data.outcome !== 'string' || receiptByCall.has(data.callId)) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Malformed or duplicate local receipt event');
+          }
+          receiptByCall.set(data.callId, {receiptId:data.receiptId, outcome:data.outcome, ...(event.turnId ? {turnId:event.turnId} : {})});
+        }
+        for (const intent of intents) {
+          if (intent.status !== 'settled') {
+            throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unsettled tool intent may have executed; reconcile the Host before continuing');
+          }
+          const receipt = receiptByCall.get(intent.callId);
+          if (!intent.receiptId || !receipt ||
+              receipt.receiptId !== intent.receiptId ||
+              receipt.turnId !== intent.turnId ||
+              receipt.outcome !== intent.outcome) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Tool intent and local receipt disagree');
+          }
+          receiptByCall.delete(intent.callId);
+        }
+        if (receiptByCall.size !== 0) {
+          throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Orphan local receipt event');
+        }
+      }
       this.seq.set(sessionId, events.length);
       this.known.add(sessionId);
       return sessionId;
