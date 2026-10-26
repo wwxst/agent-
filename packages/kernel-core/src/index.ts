@@ -133,6 +133,14 @@ export class AgentKernel {
           }
           continue;
         }
+        if (event.type === 'tool.outcome_unknown') {
+          const data = event.data as {callId?: unknown; mayHaveExecuted?: unknown} | null;
+          if (!event.turnId || !seenTurnIds.has(event.turnId) ||
+              typeof data?.callId !== 'string' || !data.callId || data.mayHaveExecuted !== true) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Malformed tool reconciliation event');
+          }
+          continue;
+        }
         if (event.type === 'turn.queued') {
           if (activeTurn !== undefined || !event.turnId || seenTurnIds.has(event.turnId)) {
             throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Overlapping or duplicate user Turn');
