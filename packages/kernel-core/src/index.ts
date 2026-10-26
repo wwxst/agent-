@@ -69,6 +69,116 @@ export class AgentKernel {
     }
   }
 
+  /**
+   * Reattach a quiescent session from an EventStore. This reconstructs only
+   * in-memory indexing and never replays a ToolCall or pretends to close an
+   * interrupted operation. M2 provides a durable store and reconciliation.
+   */
+  async resumeSession(sessionId: SessionId): Promise<SessionId> {
+    if (!sessionId.trim() || this.known.has(sessionId) || this.creating.has(sessionId) || this.active.has(sessionId)) {
+      throw new KernelError('SESSION_BUSY', 'Session is already open or being attached');
+    }
+    // Reserve before the first await; two resume/create attempts must not race.
+    this.creating.add(sessionId);
+    try {
+      const events = await this.store.read(sessionId);
+      if (events.length === 0) throw new KernelError('UNKNOWN_SESSION', 'No session journal to resume');
+      const seenEventIds = new Set<string>();
+      const seenTurnIds = new Set<string>();
+      let activeTurn: string | undefined;
+      let activeStart = 0;
+      let lastCheckpointThrough = 0;
+      let turnStarted = false;
+      const outstandingCalls = new Set<string>();
+      const seenCalls = new Set<string>();
+      const completedBoundaries = new Set<number>();
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i]!;
+        if (event.sessionId !== sessionId || event.seq !== i + 1 || !event.eventId || seenEventIds.has(event.eventId)) {
+          throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Invalid session event identity or sequence');
+        }
+        seenEventIds.add(event.eventId);
+        if (i === 0) {
+          if (event.type !== 'session.created' || event.turnId !== undefined) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Session must start with session.created');
+          }
+          continue;
+        }
+        if (event.type === 'session.created') {
+          throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Duplicate session.created event');
+        }
+        if (event.type === 'turn.queued') {
+          if (activeTurn !== undefined || !event.turnId || seenTurnIds.has(event.turnId)) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Overlapping or duplicate user Turn');
+          }
+          activeTurn = event.turnId;
+          activeStart = event.seq;
+          turnStarted = false;
+          outstandingCalls.clear();
+          seenCalls.clear();
+          seenTurnIds.add(activeTurn);
+          continue;
+        }
+        if (activeTurn === undefined || event.turnId !== activeTurn) {
+          throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Event does not belong to the active Turn');
+        }
+        if (event.type === 'turn.started') {
+          if (turnStarted) throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Duplicate turn.started event');
+          turnStarted = true;
+        }
+        if (event.type === 'assistant.message') {
+          const msg = event.data as AssistantMessage | null;
+          if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.toolCalls)) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Invalid assistant message in journal');
+          }
+          for (const call of msg.toolCalls) {
+            if (!call.id || seenCalls.has(call.id)) {
+              throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Reused or empty tool call ID');
+            }
+            seenCalls.add(call.id);
+            outstandingCalls.add(call.id);
+          }
+        }
+        if (event.type === 'tool.result') {
+          const result = event.data as ToolResult | null;
+          if (!result || !outstandingCalls.delete(result.callId)) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Orphan or duplicate tool result');
+          }
+        }
+        if (event.type === 'context.checkpoint') {
+          const payload = event.data as { throughSeq?: unknown; summary?: unknown } | null;
+          const through = payload?.throughSeq;
+          if (!Number.isSafeInteger(through) || typeof through !== 'number' ||
+              through <= lastCheckpointThrough || through >= activeStart ||
+              !completedBoundaries.has(through) ||
+              events.some(e => e.seq > lastCheckpointThrough && e.seq <= through &&
+                (e.type === 'turn.failed' || e.type === 'turn.cancelled')) ||
+              typeof payload?.summary !== 'string' ||
+              !payload.summary.trim() || payload.summary.length > 32_768) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Invalid context checkpoint boundary');
+          }
+          lastCheckpointThrough = through;
+        }
+        if (event.type === 'turn.completed' || event.type === 'turn.failed' || event.type === 'turn.cancelled') {
+          if (!turnStarted) throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Terminal Turn without a start event');
+          if (outstandingCalls.size !== 0) {
+            throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unresolved ToolCalls need reconciliation, not automatic replay');
+          }
+          if (event.type === 'turn.completed') completedBoundaries.add(event.seq);
+          activeTurn = undefined;
+        }
+      }
+      if (activeTurn !== undefined) {
+        throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unclosed Turn needs explicit reconciliation; automatic ToolCall replay is forbidden');
+      }
+      this.seq.set(sessionId, events.length);
+      this.known.add(sessionId);
+      return sessionId;
+    } finally {
+      this.creating.delete(sessionId);
+    }
+  }
+
   private isCancelling(ctl: ActiveTurn): boolean { return ctl.controller.signal.aborted || ctl.state === 'cancelling'; }
   private assertSession(id: SessionId): void { if (!this.known.has(id)) throw new KernelError('UNKNOWN_SESSION', id); }
   async readEvents(sessionId: SessionId, afterSeq = 0): Promise<readonly KernelEvent[]> {
@@ -136,8 +246,13 @@ export class AgentKernel {
     const active = this.active.get(sessionId);
     if (!active || active.state === 'admitting' || active.turnId !== turnId || active.controller.signal.aborted || active.state === 'cancelling' || active.state === 'completed' || active.state === 'failed' || active.state === 'cancelled') return false;
     active.state = 'cancelling';
-    await this.record(sessionId, { type: 'turn.cancel_requested', turnId, data: {} });
-    active.controller.abort(new Error('CANCEL_TURN'));
+    try {
+      await this.record(sessionId, { type: 'turn.cancel_requested', turnId, data: {} });
+    } finally {
+      // Even when the journal is unavailable, do not leave a streaming
+      // provider/ToolHost waiting forever. The caller still sees commit failure.
+      active.controller.abort(new Error('CANCEL_TURN'));
+    }
     return true;
   }
 
