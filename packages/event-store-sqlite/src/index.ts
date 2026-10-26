@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { ConflictError, KernelError, type EventDraft, type EventStore, type KernelEvent, type SessionId } from '../../contracts/src/index.js';
+import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 
 /**
  * Single-file SQLite EventStore for Node >= 22.16.
@@ -12,7 +13,8 @@ import { ConflictError, KernelError, type EventDraft, type EventStore, type Kern
 export class SqliteEventStore implements EventStore {
   private readonly db: DatabaseSync;
 
-  constructor(path: string) {
+  /** When passed a WriterLease, EVERY append is fenced in the same SQLite transaction. */
+  constructor(path: string, private readonly writerLease?: WriterLease) {
     if (!path.trim()) throw new KernelError('INVALID_STORE_PATH', 'SQLite path must be nonempty');
     this.db = new DatabaseSync(path, { timeout: 5000 });
     try {
@@ -43,6 +45,21 @@ export class SqliteEventStore implements EventStore {
     // An empty batch must not fabricate an event or bypass cursor checking.
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      // Under the same BEGIN IMMEDIATE lock as event insertion, reject expired
+      // or superseded owners. Unfenced stores are a backwards-compatible M0/M1
+      // adapter; production multi-process writers must always supply a lease.
+      if (this.writerLease) {
+        const lease = this.writerLease;
+        if (lease.sessionId !== sessionId) {
+          throw new KernelError('LEASE_SCOPE_VIOLATION', 'Cannot append to a different session');
+        }
+        const owned = this.db.prepare(`
+          SELECT 1 AS valid FROM session_writer_leases
+          WHERE session_id = ? AND owner_id = ? AND fence_token = ?
+            AND expires_at_ms > CAST(unixepoch('subsec') * 1000 AS INTEGER)
+        `).get(sessionId, lease.ownerId, lease.fenceToken);
+        if (!owned) throw new KernelError('LEASE_LOST', 'Lease expired or writer fenced out');
+      }
       const row = this.db.prepare(
         'SELECT COALESCE(MAX(seq), 0) AS last_seq FROM kernel_events WHERE session_id = ?'
       ).get(sessionId);
