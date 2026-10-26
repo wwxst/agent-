@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 会话重开/SQLite WAL 增量已实现（非生产就绪）** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 会话重开/SQLite WAL 增量已实现（非生产就绪）** · **最后更新：2026-10-27**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 Agent Loop 已实现，M1 当前只实现会话安全重开与 SQLite WAL 日志。** 剩余恢复协议、单写者租约、真实 Provider、隔离 Tool Host 和 Subagent 等仍未完成。详见 [M0 运行说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md) 与 [M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md)。
+**注意：M0 Agent Loop 已实现，M1 已完成会话安全重开、SQLite WAL 及 Writer Lease/Fencing 的基础原语。** 可信 Kernel 自动获取/续租/释放、Tool Host 独立栅栏、Intent/Receipt 和完整恢复仍未完成。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)。
 
 ## 一、项目目标
 
@@ -43,7 +43,8 @@
 13. **[四套 Agent 内核源码对照与自研取舍（持续深研）](docs/research/comparative/README.md)**：Pi 的 Coding Agent 产品层、Codex 的 App Server/持久化、Claude Code 2.1.304/Desktop、DeepSeek Native/PTC，并记录 [12 条执行不变量](docs/research/comparative/11-跨内核不变量与架构评审门槛.md)。
 14. **[四内核证据审计与正式技术取舍](docs/research/comparative/14-自研内核架构取舍正式评审稿.md)**：推荐 TS Kernel、SQLite WAL、可信 Tool Host、S2 调度。详见 [研究完成边界](docs/research/comparative/15-研究完成判据与剩余缺口.md)，未运行测试不得称完成。
 15. [M1 安全重开与恢复边界](docs/11-M1-会话重开与恢复边界.md)：日志结构验证、未决 Turn 停机保护。
-16. [M1 SQLite WAL 事件日志](docs/12-M1-SQLite-WAL-事件日志.md)：事务 CAS、测试证据、未实现的租约与执行收据。
+16. [M1 SQLite WAL 事件日志](docs/12-M1-SQLite-WAL-事件日志.md)：事务 CAS、跨进程 crash 测试和持久化边界。
+17. [M1 Writer Lease 与 Fencing Token](docs/13-M1-Writer-Lease-与-Fencing-Token.md)：租约基础协议、旧持有者隔离、仍缺少自动执行协调。
 
 附加约束：
 
@@ -64,11 +65,12 @@
 
 - **M0（已合并 main）**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler`、`packages/event-store-memory`；17 项离线确定性测试。
 - **M1 安全重开（已合并 main）**：`AgentKernel.openSession()` 校验既有完整会话日志，遇未结束 Turn 返回 `RECOVERY_REQUIRED` 而非自动执行；新增 4 项测试。
-- **M1 SQLite WAL（已实现增量，计划本 PR 合并 main）**：`packages/event-store-sqlite` 使用 Node 自带 `node:sqlite`，实现事务 compare-and-append、SQLite 文件级重开和 read cursor；新增 5 项测试（含 SIGKILL 重开）。M1 的存储接口**不等于**完整恢复系统。
-- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，合计 26 项确定性测试；结果以具体 workflow run 为准。
-- **仍未具备**：真实模型、跨进程 Session 独占执行租约、Tool Intent/Receipt、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M1 SQLite WAL（已合并 main）**：`packages/event-store-sqlite` 使用 Node 自带 `node:sqlite`，实现事务 compare-and-append、SQLite 文件级重开和 read cursor；新增 5 项测试（含 SIGKILL 重开）。M1 的存储接口**不等于**完整恢复系统。
+- **M1 Writer Lease/Fencing（本轮开发分支）**：新增 `packages/session-leases-sqlite` 租约事务、过期后递增 Fencing Token 和可选的 SQLite EventStore 事务内栅栏。增加 9 项测试，但**尚未集成 Kernel 的自动 acquire/renew/release**。
+- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，目前合计 35 项确定性测试；结果以具体 workflow run 为准。
+- **仍未具备**：真实模型、可信 Kernel 自动租约协调、Tool Host 独立 Fencing、Tool Intent/Receipt、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-先实现跨实例 Session writer lease/fencing 与 Tool Intent/Receipt 的故障恢复协议，再接入独立可信 Tool Host、安全审批与真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+先将 Session lease/fencing 原语接入可信 Kernel admission + heartbeat + abort，再实现 Tool Intent/Receipt 的故障恢复协议，继而接入独立可信 Tool Host、安全审批与真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
