@@ -166,3 +166,109 @@ test('M1 lease: lease metadata and journal events share the file but not yet an 
     tmp.cleanup();
   }
 });
+
+
+test('M1 fenced journal: stale writers cannot append after release/takeover even with fresh cursor', async () => {
+  const tmp = temporaryDb();
+  const leaseStore = new SqliteWriterLeaseStore(tmp.path);
+  const holder = new SqliteWriterLeaseStore(tmp.path);
+  let firstJournal: SqliteEventStore | undefined;
+  let secondJournal: SqliteEventStore | undefined;
+  try {
+    const first = leaseStore.acquire('fenced', 'writer-A', 5000);
+    assert.ok(first);
+    firstJournal = new SqliteEventStore(tmp.path, first);
+    const created = await firstJournal.append('fenced', 0, [{ type: 'session.created', data: {} }]);
+    assert.equal(created.length, 1);
+    await assert.rejects(
+      firstJournal.append('other', 0, [{ type: 'session.created', data: {} }]),
+      { code: 'LEASE_SCOPE_VIOLATION' },
+    );
+    assert.equal(leaseStore.release(first), true);
+    const second = holder.acquire('fenced', 'writer-B', 5000);
+    assert.ok(second);
+    assert.equal(second.fenceToken, first.fenceToken + 1);
+    // The CAS expected sequence is intentionally current. It must still fail on fencing.
+    await assert.rejects(
+      firstJournal.append('fenced', 1, [{ type: 'turn.queued', turnId: 'stale', data: {} }]),
+      { code: 'LEASE_LOST' },
+    );
+    secondJournal = new SqliteEventStore(tmp.path, second);
+    await secondJournal.append('fenced', 1, [{ type: 'turn.queued', turnId: 'fresh', data: {} }]);
+    const events = await secondJournal.read('fenced');
+    assert.deepEqual(events.map(e => e.type), ['session.created', 'turn.queued']);
+    assert.equal(events[1]?.turnId, 'fresh');
+  } finally {
+    secondJournal?.close();
+    firstJournal?.close();
+    holder.close();
+    leaseStore.close();
+    tmp.cleanup();
+  }
+});
+
+test('M1 fenced journal: expired claim rejects appends even without a successor', async () => {
+  const tmp = temporaryDb();
+  const leases = new SqliteWriterLeaseStore(tmp.path);
+  let journal: SqliteEventStore | undefined;
+  try {
+    const lease = leases.acquire('timed-out', 'writer-A', 70);
+    assert.ok(lease);
+    journal = new SqliteEventStore(tmp.path, lease);
+    await journal.append('timed-out', 0, [{ type: 'session.created', data: {} }]);
+    await delay(230);
+    await assert.rejects(
+      journal.append('timed-out', 1, [{ type: 'turn.queued', turnId: 'unsafe', data: {} }]),
+      { code: 'LEASE_LOST' },
+    );
+    assert.equal((await journal.read('timed-out')).length, 1);
+    const renewed = leases.acquire('timed-out', 'writer-B', 5000);
+    assert.ok(renewed);
+    assert.equal(renewed.fenceToken, 2);
+  } finally {
+    journal?.close();
+    leases.close();
+    tmp.cleanup();
+  }
+});
+
+test('M1 fenced journal: a session can reopen with a new fenced Kernel instance', async () => {
+  const tmp = temporaryDb();
+  const leases = new SqliteWriterLeaseStore(tmp.path);
+  let firstStore: SqliteEventStore | undefined;
+  let successorStore: SqliteEventStore | undefined;
+  try {
+    const initial = leases.acquire('s', 'owner-A', 5000);
+    assert.ok(initial);
+    firstStore = new SqliteEventStore(tmp.path, initial);
+    await firstStore.append('s', 0, [
+      { type: 'session.created', data: {} },
+      { type: 'turn.queued', turnId: 'done', data: {} },
+      { type: 'turn.started', turnId: 'done', data: {} },
+      { type: 'turn.completed', turnId: 'done', data: { stepCount: 1 } },
+    ]);
+    assert.equal(leases.release(initial), true);
+    const takeover = leases.acquire('s', 'owner-B', 5000);
+    assert.ok(takeover);
+    successorStore = new SqliteEventStore(tmp.path, takeover);
+    const { AgentKernel } = await import('../packages/kernel-core/src/index.js');
+    const { FakeProvider } = await import('../packages/model-providers/src/fake.js');
+    const { ToolRegistry } = await import('../packages/tool-scheduler/src/index.js');
+    const provider = new FakeProvider([[
+      { type: 'message_complete', message: { role: 'assistant', text: 'ok', toolCalls: [] }, finishReason: 'stop' },
+    ]]);
+    const kernel = new AgentKernel(successorStore, provider, new ToolRegistry());
+    await kernel.openSession('s');
+    assert.equal((await kernel.runTurn('s', 'continue', 'new-turn')).status, 'completed');
+    await assert.rejects(
+      firstStore.append('s', (await successorStore.read('s')).length,
+        [{ type: 'turn.queued', turnId: 'old', data: {} }]),
+      { code: 'LEASE_LOST' },
+    );
+  } finally {
+    successorStore?.close();
+    firstStore?.close();
+    leases.close();
+    tmp.cleanup();
+  }
+});
