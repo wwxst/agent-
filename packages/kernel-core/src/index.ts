@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 
-interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; }
+interface Steering { readonly text: string; readonly ready: Promise<unknown>; }
+interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; steering: Steering[]; }
 export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; }
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
@@ -82,13 +83,38 @@ export class AgentKernel {
     return true;
   }
 
-  /** A complete user Turn contains one or more model Steps. Rejects concurrent turns in M0. */
+  /** Enqueue input for the next safe model Step, with an expected active Turn ID. */
+  async steerTurn(sessionId: SessionId, expectedTurnId: TurnId, text: string): Promise<boolean> {
+    this.assertSession(sessionId);
+    if (!text.trim()) throw new KernelError('EMPTY_MESSAGE', 'Steering requires nonempty text');
+    const ctl = this.active.get(sessionId);
+    if (!ctl || ctl.turnId !== expectedTurnId ||
+        !['running_model', 'running_tools'].includes(ctl.state) || ctl.controller.signal.aborted) return false;
+    // Reserve synchronously so a concurrently completing model Step cannot miss accepted Steering.
+    const ready = this.record(sessionId, {type: 'turn.steer_queued', turnId: expectedTurnId, data: {text}});
+    ctl.steering.push({text, ready});
+    await ready;
+    return true;
+  }
+
+  private async consumeSteering(sessionId: SessionId, ctl: ActiveTurn): Promise<void> {
+    const batch = ctl.steering.splice(0);
+    if (batch.length === 0) return;
+    await Promise.all(batch.map(x => x.ready));
+    if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
+    await this.record(sessionId, ...batch.flatMap(x => [
+      {type: 'turn.steer_consumed' as const, turnId: ctl.turnId, data: {}},
+      {type: 'user.message' as const, turnId: ctl.turnId, data: {text: x.text}},
+    ]));
+  }
+
+  /** A complete user Turn contains one or more model Steps. Rejects concurrent turns. */
   async runTurn(sessionId: SessionId, text: string, turnId: TurnId = randomUUID()): Promise<TurnResult> {
     this.assertSession(sessionId);
     if (!text.trim()) throw new KernelError('EMPTY_MESSAGE', 'Message must be nonempty');
     if (!turnId.trim() || this.active.has(sessionId)) throw new KernelError('TURN_BUSY', 'Turn is already active');
     // Reserve before the asynchronous admission read to reject racing runTurn calls.
-    const ctl: ActiveTurn = { turnId, controller: new AbortController(), state: 'admitting' };
+    const ctl: ActiveTurn = { turnId, controller: new AbortController(), state: 'admitting', steering: [] };
     this.active.set(sessionId, ctl);
     let terminal = false;
     let admitted = false;
@@ -103,10 +129,17 @@ export class AgentKernel {
       const seenCallIds = new Set<string>();
       for (let step = 1; step <= this.maxSteps; step++) {
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
-        await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, toolSet: this.tools.visibleTools } });
+        await this.consumeSteering(sessionId, ctl);
+        const boundTools = this.tools.snapshot();
+        const stepAdmission = {
+          stepId: `${turnId}/${step}`,
+          toolSetVersion: boundTools.version,
+          tools: boundTools.modelSpecs(),
+        };
+        await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, ...stepAdmission } });
         const messages = await this.context(sessionId);
         let completed: { message: AssistantMessage; finishReason: 'stop' | 'tool_use' | 'length' } | undefined;
-        for await (const event of this.provider.stream(messages, ctl.controller.signal)) {
+        for await (const event of this.provider.stream(messages, ctl.controller.signal, stepAdmission)) {
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
           if (event.type === 'text_delta') this.onDelta?.(event.text, {sessionId, turnId});
           if (event.type === 'message_complete') {
@@ -128,6 +161,11 @@ export class AgentKernel {
         await record({ type: 'assistant.message', turnId, data: structuredClone(message) });
         if (message.toolCalls.length === 0) {
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
+          // Steering accepted during model execution takes precedence over normal completion.
+          if (ctl.steering.length) {
+            await this.consumeSteering(sessionId, ctl);
+            continue;
+          }
           // Claim completion synchronously: later cancelTurn calls must not append a post-terminal cancellation.
           ctl.state = 'completed';
           await record({ type: 'turn.completed', turnId, data: { stepCount: step } });
@@ -137,7 +175,7 @@ export class AgentKernel {
         toolCount += message.toolCalls.length;
         for (const call of message.toolCalls) seenCallIds.add(call.id);
         ctl.state = 'running_tools';
-        const results = await executeBatch(message.toolCalls, this.tools, ctl.controller.signal);
+        const results = await executeBatch(message.toolCalls, boundTools, ctl.controller.signal);
         await record(...results.map(r => ({ type: 'tool.result' as const, turnId, data: r })));
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         ctl.state = 'running_model';
