@@ -59,6 +59,8 @@ Client JSON-RPC turn/start
 
 ## 4. Codex 真正的本地持久化写入与索引投影
 
+> **2026-10-26 更正**：进一步深入到 RolloutRecorder 的底层 Writer，确认上述 `flush()` 是 `File.flush()` 路径，不应将其当作已证明的物理掉电持久性。详见 [12](12-四内核执行与持久化证据审计.md)。
+
 [thread-store/src/local/live_writer.rs L414–472](https://github.com/openai/codex/blob/970111f6cb62cc02fe36a82ea7d71b37a2889c97/codex-rs/thread-store/src/local/live_writer.rs#L414-L472) 是本轮最大的具体发现：
 
 ```text
@@ -85,7 +87,7 @@ write_and_project
 
 ### 与 DeepSeek append/flush 语义的直接对照
 
-DeepSeek 的 SessionHandle `append` **可能只进入缓冲**，明确规定 `flush` 才有耐久屏障；Codex 当前本地 `durable_write(AppendItems)` **在记录 canonical items 后立即调用 Recorder.flush**。这意味着两套公开实现的写入时机不同，必须比较吞吐与损失窗口，不能只给它们都贴上“Event Sourcing”标签。
+DeepSeek 的进程内 Session Event `append` **可能进入异步缓冲**；但其 JSONL 后端**显式 SessionHandle.append** 在完成后有后端持久写入合同，不能混淆。Codex 当前本地 `durable_write(AppendItems)` **在记录 canonical items 后立即调用 Recorder.flush**。已追到 `writer.file.flush()`，本审计路径**未见 fsync/sync_all，因此不能直接声称掉电持久**。这意味着两套公开实现的写入时机不同，必须比较吞吐与损失窗口，不能只给它们都贴上“Event Sourcing”标签。
 
 ## 5. 为什么不是“照搬 Codex Rust”
 
