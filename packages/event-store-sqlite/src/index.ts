@@ -69,7 +69,7 @@ export class SqliteEventStore implements EventStore {
         if (typeof dataJson !== 'string') throw new KernelError('INVALID_EVENT_DATA', 'Event data must be JSON-serializable');
         insert.run(sessionId, seq, eventId, draft.turnId ?? null, draft.type, dataJson, at);
         result.push({
-          sessionId, seq, eventId, turnId: draft.turnId, type: draft.type,
+          sessionId, seq, eventId, ...(draft.turnId === undefined ? {} : { turnId: draft.turnId }), type: draft.type,
           at, data: JSON.parse(dataJson) as unknown,
         });
       }
