@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 四批基础已实现（69 项离线测试通过，非生产就绪）** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 / M1 + M2 第一批 SQLite Journal 原型（85 项测试通过，非生产就绪）** · **最后更新：2026-10-26**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 已合并 main，M1 已在开发分支实现 OpenAI 兼容 Chat Completions SSE、原生 Anthropic Messages SSE、Step ToolSet 快照、Steering、字符预算入场、真实 Usage 事件和可选 Context Checkpoint；没有真实 API 密钥联调。M1 其余能力及 M2–M4 仍待开发。** 参见 [M0 说明](m0/README.md)、[M1 总说明](m1/README.md)与 [M1 第四批恢复记录](M1-SESSION-RECOVERY-2026-10-26.md)。
+**注意：M0 已合并 main；M1 仍在独立分支。M2 从 M1 衍生的开发分支新增 SQLite 事务型 EventStore、独立命令接受与去重，但尚未将 command.accepted 接入实际 runTurn/CLI；工具 Host、审批与真实断电恢复仍未完成。** 参见 [M0 说明](m0/README.md)、[M1 总说明](m1/README.md)、[M2 运行说明](m2/README.md)与 [M2 实测记录](M2-SQLITE-JOURNAL-2026-10-26.md)。
 
 ## 一、项目目标
 
@@ -62,11 +62,12 @@
 
 - **M0 已合并 main**：自主 Agent Loop、MockProvider、只读 Tool Scheduler、内存 EventStore 和 17 项基础测试。
 - **M1 已完成的协议、上下文与安全恢复基础（本开发分支，69/69 离线测试通过）**：OpenAI 兼容 SSE、Anthropic Messages、Step ToolSet 快照、按 Turn ID Steering、Provider Usage/预算、Context Checkpoint、静止 Session 恢复准入及取消故障保护。
-- **验证范围**：Node.js 22.16.0、`npm run check` 和 `npm test` 通过；新 Provider 的 HTTP 流使用模拟 Fetch，不代表已经用实际付费模型联调。查看 [M1 开发说明](m1/README.md)。
-- **仍未具备**：Anthropic thinking/server-tool、多模态与原生 Responses 接口、OS 沙箱、SQLite 事务持久化、审批凭据、外部工具收据、MCP/Skills、Subagent、Web/Desktop API。**不得注册不可信/高风险工具。**
-- **安装与验证**：Node.js >=22；`npm install`、`npm run check`、`npm test`；目前无法离线生成 package-lock，首次安装需要 npm registry。
-- **分支**：M0 和设计研究已进入 `main`；M1 在 `feat/kernel-m1-provider-stream`，尚未合并。
+- **M2 第一批（本开发分支，85/85 测试通过）**：SQLite WAL + FULL EventStore、Session 事件 CAS/事务、command.accepted 原子入账与跨连接命令幂等、重启后完成 Session 的重新挂载、SQL 故障注入与 SIGKILL 回放。详见 [M2 说明](m2/README.md)。
+- **验证范围**：Node.js 22.16.0、`npm run check` 和 `npm test` 通过；Provider HTTP 流使用模拟 Fetch，SQLite 使用真实磁盘 DB 与子进程测试；未运行付费 Provider 或物理断电试验。
+- **仍未具备**：Anthropic thinking/server-tool、多模态与原生 Responses 接口、OS 沙箱、生产级持久恢复保证、审批凭据、外部工具收据、MCP/Skills、Subagent、Web/Desktop API。**不得注册不可信/高风险工具。**
+- **安装与验证**：Node.js >=22.5；`npm install`、`npm run check`、`npm test`；目前无法离线生成 package-lock，首次安装需要 npm registry。
+- **分支**：M0 和设计研究已进入 `main`；M1 在 `feat/kernel-m1-provider-stream`；M2 在 `feat/kernel-m2-sqlite-journal`，均未合并到 main。
 
 ## 六、下一步
 
-继续 M1：补全原生 Provider 能力、真实 Token 估计/Context 压缩和可复现 CI；然后进入 M2 的 SQLite DurableEventStore、可信 ApprovalRoot 与独立 ToolHost。
+继续 M2：将事务型命令接受接入 Kernel/CLI 幂等入口，实现持久 Tool Intent/Receipt 与恢复协调器，再推进 PolicyRoot 和独立 ToolHost；同时完善 M1 真实 Provider 联调与可靠性验证。

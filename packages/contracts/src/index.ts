@@ -69,7 +69,7 @@ export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.result'
   | 'turn.completed' | 'turn.failed' | 'turn.cancelled'
-  | 'turn.steer_queued' | 'turn.steer_consumed' | 'model.usage' | 'context.checkpoint';
+  | 'turn.steer_queued' | 'turn.steer_consumed' | 'command.accepted' | 'model.usage' | 'context.checkpoint';
 
 export interface EventDraft {
   readonly type: KernelEventType;

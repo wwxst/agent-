@@ -10,6 +10,11 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "cli": "npm run build && node dist/apps/cli/src/main.js"
   },
-  "engines": { "node": ">=22" },
-  "devDependencies": { "typescript": "^5.9.3", "@types/node": "^22.15.0" }
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.15.0"
+  }
 }

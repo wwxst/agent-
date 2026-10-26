@@ -107,6 +107,17 @@ export class AgentKernel {
         if (event.type === 'session.created') {
           throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Duplicate session.created event');
         }
+        // Durable admission facts may be committed between Turns or while a Turn runs.
+        // They are audit events, not permission grants to execute any tool.
+        if (event.type === 'command.accepted') {
+          const cmd = event.data as {commandId?: unknown; kind?: unknown; fingerprint?: unknown} | null;
+          if (event.turnId !== undefined || typeof cmd?.commandId !== 'string' || !cmd.commandId ||
+              typeof cmd?.kind !== 'string' || !cmd.kind ||
+              typeof cmd?.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(cmd.fingerprint)) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Malformed command acceptance event');
+          }
+          continue;
+        }
         if (event.type === 'turn.queued') {
           if (activeTurn !== undefined || !event.turnId || seenTurnIds.has(event.turnId)) {
             throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Overlapping or duplicate user Turn');
