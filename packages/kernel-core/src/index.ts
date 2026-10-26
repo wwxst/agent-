@@ -55,6 +55,56 @@ export class AgentKernel {
     }
   }
 
+  /**
+   * Reattach a previously completed session without re-running model steps or tools.
+   * Fail closed on damaged logs or in-flight turns: M1 has no recovery coordinator.
+   * A durable store still needs a single-writer lease outside this process.
+   */
+  async openSession(id: SessionId): Promise<SessionId> {
+    if (!id.trim() || this.known.has(id) || this.creating.has(id)) {
+      throw new KernelError('SESSION_EXISTS', 'Session is already open or reserved');
+    }
+    this.creating.add(id);
+    try {
+      const events = await this.store.read(id);
+      if (events.length === 0 || events[0]?.type !== 'session.created') {
+        throw new KernelError('UNKNOWN_SESSION', 'No session.created event');
+      }
+      const seen = new Set<TurnId>();
+      let pending: TurnId | undefined;
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i]!;
+        if (e.sessionId !== id || e.seq !== i + 1 || (i > 0 && e.type === 'session.created')) {
+          throw new KernelError('CORRUPT_EVENT_LOG', 'Invalid session identity, sequence, or creation event');
+        }
+        if (i === 0) {
+          if (e.turnId !== undefined) throw new KernelError('CORRUPT_EVENT_LOG', 'session.created must not carry turnId');
+          continue;
+        }
+        if (!e.turnId) throw new KernelError('CORRUPT_EVENT_LOG', 'Turn event missing turnId');
+        if (e.type === 'turn.queued') {
+          if (pending || seen.has(e.turnId)) throw new KernelError('CORRUPT_EVENT_LOG', 'Overlapping or repeated turn');
+          seen.add(e.turnId);
+          pending = e.turnId;
+        } else {
+          if (pending !== e.turnId) throw new KernelError('CORRUPT_EVENT_LOG', 'Event is outside an active turn');
+          if (e.type === 'turn.completed' || e.type === 'turn.failed' || e.type === 'turn.cancelled') {
+            pending = undefined;
+          }
+        }
+      }
+      if (pending) {
+        throw new KernelError('RECOVERY_REQUIRED', 'Unfinished turn requires manual recovery; never replay side effects');
+      }
+      // Install the cursor only after the whole event stream has passed validation.
+      this.seq.set(id, events.length);
+      this.known.add(id);
+      return id;
+    } finally {
+      this.creating.delete(id);
+    }
+  }
+
   private isCancelling(ctl: ActiveTurn): boolean { return ctl.controller.signal.aborted || ctl.state === 'cancelling'; }
   private assertSession(id: SessionId): void { if (!this.known.has(id)) throw new KernelError('UNKNOWN_SESSION', id); }
   async readEvents(sessionId: SessionId, afterSeq = 0): Promise<readonly KernelEvent[]> {
