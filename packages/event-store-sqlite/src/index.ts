@@ -7,12 +7,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ConflictError, KernelError, type EventDraft, type EventStore, type KernelEvent, type SessionId } from '../../contracts/src/index.js';
+import { ConflictError, KernelError, type EventDraft, type DurableExecutionStore, type KernelEvent, type SessionId, type ToolCall, type ToolResult, type RecordedToolIntent } from '../../contracts/src/index.js';
 
 const MAX_EVENT_BYTES = 1024 * 1024;
 
 type Row = { session_id: string; seq: number; event_id: string; type: string; turn_id: string | null; data_json: string; at: string };
 type CommandRow = { fingerprint: string; accepted_seq: number; last_seq: number };
+type IntentRow = {session_id:string;turn_id:string;call_id:string;tool_name:string;tool_version:string;args_hash:string;status:'pending'|'settled'|'outcome_unknown';receipt_id:string|null;outcome:'succeeded'|'failed'|'outcome_unknown'|null};
 
 /** Reject JSON-incompatible values instead of silently erasing event fields. */
 function jsonValue(value: unknown, depth = 0, seen = new Set<object>()): unknown {
@@ -64,7 +65,7 @@ export interface SQLiteEventStoreOptions {
 }
 
 /** Synchronous SQLite operations wrapped in the existing async EventStore contract. */
-export class SQLiteEventStore implements EventStore {
+export class SQLiteEventStore implements DurableExecutionStore {
   private readonly db: DatabaseSync;
   private closed = false;
 
@@ -98,6 +99,18 @@ export class SQLiteEventStore implements EventStore {
         accepted_seq INTEGER NOT NULL,
         last_seq INTEGER NOT NULL,
         PRIMARY KEY (session_id, command_id)
+      );
+      CREATE TABLE IF NOT EXISTS tool_intents (
+        session_id TEXT NOT NULL REFERENCES sessions(session_id),
+        turn_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        tool_version TEXT NOT NULL,
+        args_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','settled','outcome_unknown')),
+        receipt_id TEXT UNIQUE,
+        outcome TEXT CHECK(outcome IN ('succeeded','failed','outcome_unknown')),
+        PRIMARY KEY(session_id, call_id)
       );`);
     } catch (error) { this.db.close(); throw error; }
   }
@@ -190,6 +203,82 @@ export class SQLiteEventStore implements EventStore {
       this.db.prepare('INSERT INTO commands(session_id,command_id,fingerprint,accepted_seq,last_seq) VALUES(?,?,?,?,?)')
         .run(sessionId,commandId,digest,first.seq,last.seq);
       return {commandId,fingerprint:digest,acceptedSeq:first.seq,lastSeq:last.seq,replayed:false};
+    });
+  }
+
+  /** Persist an executable intent before the (trusted read-only test) body starts. */
+  async recordToolIntent(sessionId: SessionId, expectedSeq: number, turnId: string,
+    call: ToolCall, toolVersion: string, normalizedArguments: unknown): Promise<number> {
+    if (!turnId.trim() || !call.id.trim() || !call.name.trim() || !toolVersion.trim()) {
+      throw new KernelError('INVALID_TOOL_INTENT', 'Tool identity and version are required');
+    }
+    const argsHash = createHash('sha256').update(canonicalJson(normalizedArguments)).digest('hex');
+    return this.transact(() => {
+      if (this.seqFor(sessionId) !== expectedSeq) throw new ConflictError('Tool intent sequence conflict');
+      // Tool intents MUST correspond to a proposed assistant call already in the journal.
+      const assistants = this.db.prepare("SELECT data_json FROM events WHERE session_id=? AND turn_id=? AND type='assistant.message' ORDER BY seq")
+        .all(sessionId,turnId) as {data_json:string}[];
+      const matched = assistants.some(({data_json}) => {
+        const msg = JSON.parse(data_json) as {toolCalls?: ToolCall[]};
+        return Array.isArray(msg.toolCalls) && msg.toolCalls.some(proposed =>
+          proposed.id === call.id && proposed.name === call.name &&
+          canonicalJson(proposed.arguments) === canonicalJson(call.arguments));
+      });
+      if (!matched) throw new KernelError('UNPROPOSED_TOOL', 'Tool intent must be linked to a committed assistant message');
+      const old = this.db.prepare('SELECT call_id FROM tool_intents WHERE session_id=? AND call_id=?')
+        .get(sessionId,call.id);
+      if (old) throw new ConflictError('Tool intent ID cannot be reused');
+      const events = this.writeEvents(sessionId,expectedSeq,[{type:'tool.intent',turnId,
+        data:{callId:call.id,toolName:call.name,toolVersion,argsHash,hostKind:'in_process_read_only_test'}}]);
+      this.db.prepare(`INSERT INTO tool_intents(session_id,turn_id,call_id,tool_name,tool_version,args_hash,status)
+        VALUES(?,?,?,?,?,?,'pending')`).run(sessionId,turnId,call.id,call.name,toolVersion,argsHash);
+      return events.at(-1)!.seq;
+    });
+  }
+
+  /** Store only a LOCAL TEST observation, not a remotely authenticated Host receipt. */
+  async recordLocalReceipt(sessionId: SessionId, expectedSeq: number, turnId: string,
+    result: ToolResult): Promise<number> {
+    if (result.outcome === 'denied') throw new KernelError('INVALID_TOOL_RECEIPT','Denied calls must not have executed');
+    return this.transact(() => {
+      if (this.seqFor(sessionId) !== expectedSeq) throw new ConflictError('Tool receipt sequence conflict');
+      const old = this.db.prepare('SELECT * FROM tool_intents WHERE session_id=? AND call_id=?')
+        .get(sessionId,result.callId) as IntentRow|undefined;
+      if (!old || old.turn_id !== turnId || old.tool_name !== result.name) {
+        throw new KernelError('INVALID_TOOL_RECEIPT', 'Receipt identity does not match a committed intent');
+      }
+      if (old.status !== 'pending') throw new ConflictError('Tool intent already settled or unknown');
+      const receiptId = randomUUID();
+      const events = this.writeEvents(sessionId,expectedSeq,[{type:'tool.local_receipt',turnId,
+        data:{callId:result.callId,receiptId,outcome:result.outcome,source:'in_process_read_only_test'}}]);
+      this.db.prepare("UPDATE tool_intents SET status='settled',receipt_id=?,outcome=? WHERE session_id=? AND call_id=?")
+        .run(receiptId,result.outcome,sessionId,result.callId);
+      return events.at(-1)!.seq;
+    });
+  }
+
+  async listToolIntents(sessionId: SessionId): Promise<readonly RecordedToolIntent[]> {
+    this.assertOpen();
+    const rows = this.db.prepare('SELECT * FROM tool_intents WHERE session_id=? ORDER BY rowid')
+      .all(sessionId) as IntentRow[];
+    return rows.map(r=>({sessionId:r.session_id,turnId:r.turn_id,callId:r.call_id,toolName:r.tool_name,
+      toolVersion:r.tool_version,argsHash:r.args_hash,status:r.status,
+      ...(r.receipt_id ? {receiptId:r.receipt_id} : {}),
+      ...(r.outcome ? {outcome:r.outcome} : {})}));
+  }
+
+  /** Explicit reconciliation: unknown means MAY have executed, never retry automatically. */
+  async markUnconfirmedToolsUnknown(sessionId: SessionId, expectedSeq: number): Promise<number> {
+    return this.transact(() => {
+      if (this.seqFor(sessionId) !== expectedSeq) throw new ConflictError('Reconciliation sequence conflict');
+      const rows = this.db.prepare("SELECT * FROM tool_intents WHERE session_id=? AND status='pending' ORDER BY rowid")
+        .all(sessionId) as IntentRow[];
+      if (!rows.length) return expectedSeq;
+      const events = this.writeEvents(sessionId, expectedSeq,rows.map(r=>({type:'tool.outcome_unknown',turnId:r.turn_id,
+        data:{callId:r.call_id,reason:'MISSING_HOST_RECEIPT',mayHaveExecuted:true}})));
+      const mark = this.db.prepare("UPDATE tool_intents SET status='outcome_unknown',outcome='outcome_unknown' WHERE session_id=? AND call_id=? AND status='pending'");
+      for (const row of rows) mark.run(sessionId,row.call_id);
+      return events.at(-1)!.seq;
     });
   }
 

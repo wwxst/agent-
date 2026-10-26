@@ -30,6 +30,12 @@ export class ToolRegistry {
   }
 }
 
+/** Hooks are owned by the Kernel, not by plugins. Failure to journal aborts execution. */
+export interface ExecutionJournalHooks {
+  beforeExecute(call: ToolCall, definition: ToolDefinition, parsedArguments: unknown): Promise<void>;
+  afterExecute(call: ToolCall, result: ToolResult): Promise<void>;
+}
+
 interface Prepared {
   call: ToolCall;
   definition?: ToolDefinition;
@@ -54,35 +60,46 @@ export function preflight(calls: readonly ToolCall[], registry: ToolRegistry): r
   });
 }
 
-async function invoke(item: Prepared, signal: AbortSignal): Promise<ToolResult> {
+async function invoke(item: Prepared, signal: AbortSignal, hooks?: ExecutionJournalHooks): Promise<ToolResult> {
   if (item.immediate) return item.immediate;
   if (!item.definition) throw new Error('preflight invariant broken');
   if (signal.aborted) return errorResult(item.call, 'failed', 'CANCELLED_BEFORE_EXECUTION');
+  // A journal failure must escape: NEVER run a tool whose intent could not be committed.
+  await hooks?.beforeExecute(item.call, item.definition, item.input);
+  if (signal.aborted) return errorResult(item.call, 'outcome_unknown', 'CANCELLED_AFTER_INTENT');
+  let result: ToolResult;
   try {
     const text = await item.definition.execute(item.input, signal);
-    return errorResult(item.call, 'succeeded', text);
+    result = errorResult(item.call, 'succeeded', text);
   } catch {
-    return errorResult(item.call, signal.aborted ? 'outcome_unknown' : 'failed', signal.aborted ? 'CANCELLED_DURING_EXECUTION' : 'TOOL_ERROR');
+    result = errorResult(item.call, signal.aborted ? 'outcome_unknown' : 'failed', signal.aborted ? 'CANCELLED_DURING_EXECUTION' : 'TOOL_ERROR');
   }
+  // If the receipt write fails, never return a success to the Kernel/model.
+  await hooks?.afterExecute(item.call, result);
+  return result;
 }
 
 /** Preflight is synchronous and ordered. Parallel read bodies run together; exclusive tools are barriers. */
-export async function executeBatch(calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal): Promise<readonly ToolResult[]> {
+export async function executeBatch(calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal, hooks?: ExecutionJournalHooks): Promise<readonly ToolResult[]> {
   const prepared = preflight(calls, registry);
   const results: ToolResult[] = new Array(prepared.length);
   let group: Array<{ index: number; item: Prepared }> = [];
   const flush = async (): Promise<void> => {
     const tasks = group;
     group = [];
-    const settled = await Promise.all(tasks.map(async ({ index, item }) => ({ index, value: await invoke(item, signal) })));
-    for (const { index, value } of settled) results[index] = value;
+    // Await ALL already-started bodies, even if one receipt write fails; never
+    // leave a body running beyond Turn failure just because Promise.all rejected early.
+    const settled = await Promise.allSettled(tasks.map(async ({ index, item }) => ({ index, value: await invoke(item, signal, hooks) })));
+    for (const item of settled) if (item.status === 'fulfilled') results[item.value.index] = item.value.value;
+    const rejected = settled.find(x=>x.status === 'rejected');
+    if (rejected?.status === 'rejected') throw rejected.reason;
   };
   for (let index = 0; index < prepared.length; index++) {
     const item = prepared[index]!;
     if (item.immediate) { results[index] = item.immediate; continue; }
     if (item.definition?.concurrency === 'exclusive') {
       await flush();
-      results[index] = await invoke(item, signal);
+      results[index] = await invoke(item, signal, hooks);
     } else group.push({ index, item });
   }
   await flush();

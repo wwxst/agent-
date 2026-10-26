@@ -1,3 +1,5 @@
+> **2026-10-26 第二批更新**：`runTurn` 的 Turn 接受已和 SQLite Command Journal 同事务；新增 Tool Intent / Local Receipt / OutcomeUnknown 协调与 10 项故障测试。**95/95 项通过**。具体边界见 [M2 第二批](../M2-INTENT-RECEIPT-2026-10-26.md)。
+
 # M2 第一批：SQLite Event Journal 与事务型命令接受
 
 > 状态：开发原型，可运行和测试；不是生产级 Tool Host 或端到端 exactly-once 系统。

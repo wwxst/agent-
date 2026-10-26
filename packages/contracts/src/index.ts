@@ -69,7 +69,8 @@ export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.result'
   | 'turn.completed' | 'turn.failed' | 'turn.cancelled'
-  | 'turn.steer_queued' | 'turn.steer_consumed' | 'command.accepted' | 'model.usage' | 'context.checkpoint';
+  | 'turn.steer_queued' | 'turn.steer_consumed' | 'command.accepted' | 'model.usage' | 'context.checkpoint'
+  | 'tool.intent' | 'tool.local_receipt' | 'tool.outcome_unknown';
 
 export interface EventDraft {
   readonly type: KernelEventType;
@@ -86,6 +87,42 @@ export interface EventStore {
   /** Atomic compare-and-append per session; reject stale expectedSeq. */
   append(sessionId: SessionId, expectedSeq: number, events: readonly EventDraft[]): Promise<readonly KernelEvent[]>;
   read(sessionId: SessionId, afterSeq?: number): Promise<readonly KernelEvent[]>;
+}
+/** Durable Store capability. These operations MUST be atomic with journal events. */
+export interface AcceptedCommand {
+  readonly commandId: string;
+  readonly fingerprint: string;
+  readonly acceptedSeq: number;
+  readonly lastSeq: number;
+  readonly replayed: boolean;
+}
+export type LocalReceiptOutcome = 'succeeded' | 'failed' | 'outcome_unknown';
+export interface RecordedToolIntent {
+  readonly sessionId: SessionId;
+  readonly turnId: TurnId;
+  readonly callId: ToolCallId;
+  readonly toolName: string;
+  readonly toolVersion: string;
+  readonly argsHash: string;
+  readonly status: 'pending' | 'settled' | 'outcome_unknown';
+  readonly receiptId?: string;
+  readonly outcome?: LocalReceiptOutcome;
+}
+/** This is a TEST-ONLY in-process observation, NOT an authenticated OS ToolHost receipt. */
+export interface DurableExecutionStore extends EventStore {
+  acceptCommand(sessionId: SessionId, expectedSeq: number, commandId: string, kind: string,
+    payload: unknown, accompanyingEvents?: readonly EventDraft[]): Promise<AcceptedCommand>;
+  recordToolIntent(sessionId: SessionId, expectedSeq: number, turnId: TurnId,
+    call: ToolCall, toolVersion: string, normalizedArguments: unknown): Promise<number>;
+  recordLocalReceipt(sessionId: SessionId, expectedSeq: number, turnId: TurnId,
+    result: ToolResult): Promise<number>;
+  listToolIntents(sessionId: SessionId): Promise<readonly RecordedToolIntent[]>;
+  markUnconfirmedToolsUnknown(sessionId: SessionId, expectedSeq: number): Promise<number>;
+}
+export function isDurableExecutionStore(store: EventStore): store is DurableExecutionStore {
+  const x = store as Partial<DurableExecutionStore>;
+  return typeof x.acceptCommand === 'function' && typeof x.recordToolIntent === 'function' &&
+    typeof x.recordLocalReceipt === 'function' && typeof x.markUnconfirmedToolsUnknown === 'function';
 }
 export class ConflictError extends Error {
   constructor(message: string) { super(message); this.name = 'ConflictError'; }

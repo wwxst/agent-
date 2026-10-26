@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type ModelTokenUsage, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
+import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, isDurableExecutionStore, KernelError, type KernelEvent, type ModelProvider, type ModelTokenUsage, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 import {admitContext, type ContextCompactor} from '../../context-engine/src/index.js';
 
@@ -51,6 +51,21 @@ export class AgentKernel {
     const tail = committed.then(() => undefined, () => undefined);
     this.pendingWrites.set(sessionId, tail);
     void tail.then(() => { if (this.pendingWrites.get(sessionId) === tail) this.pendingWrites.delete(sessionId); });
+    return committed;
+  }
+
+  /** Shared per-session queue: special writes may append events AND other SQL rows atomically. */
+  private commitDurable<T>(sessionId: SessionId, write: (latestSeq: number) => Promise<{result:T;lastSeq:number}>): Promise<T> {
+    const previous = this.pendingWrites.get(sessionId) ?? Promise.resolve();
+    const committed = previous.then(async () => {
+      const latest = this.seq.get(sessionId) ?? 0;
+      const {result,lastSeq} = await write(latest);
+      this.seq.set(sessionId,lastSeq);
+      return result;
+    });
+    const tail = committed.then(()=>undefined,()=>undefined);
+    this.pendingWrites.set(sessionId,tail);
+    void tail.then(()=>{if (this.pendingWrites.get(sessionId) === tail) this.pendingWrites.delete(sessionId);});
     return committed;
   }
 
@@ -293,7 +308,7 @@ export class AgentKernel {
   }
 
   /** A complete user Turn contains one or more model Steps. Rejects concurrent turns. */
-  async runTurn(sessionId: SessionId, text: string, turnId: TurnId = randomUUID()): Promise<TurnResult> {
+  async runTurn(sessionId: SessionId, text: string, turnId: TurnId = randomUUID(), commandId: string = turnId): Promise<TurnResult> {
     this.assertSession(sessionId);
     if (!text.trim()) throw new KernelError('EMPTY_MESSAGE', 'Message must be nonempty');
     if (!turnId.trim() || this.active.has(sessionId)) throw new KernelError('TURN_BUSY', 'Turn is already active');
@@ -306,7 +321,17 @@ export class AgentKernel {
     try {
       const existing = await this.store.read(sessionId);
       if (existing.some(e => e.turnId === turnId)) throw new KernelError('DUPLICATE_TURN', turnId);
-      await record({ type: 'turn.queued', turnId, data: {} }, { type: 'user.message', turnId, data: { text } }, { type: 'turn.started', turnId, data: {} });
+      const startingEvents: EventDraft[] = [
+        {type:'turn.queued',turnId,data:{}}, {type:'user.message',turnId,data:{text}}, {type:'turn.started',turnId,data:{}}
+      ];
+      if (isDurableExecutionStore(this.store)) {
+        const durable = this.store;
+        const ack = await this.commitDurable(sessionId, async latestSeq => {
+          const result = await durable.acceptCommand(sessionId,latestSeq,commandId,'turn.start',{turnId,text},startingEvents);
+          return {result,lastSeq:result.lastSeq};
+        });
+        if (ack.replayed) throw new KernelError('COMMAND_ALREADY_ACCEPTED','Duplicate command is not an execution authorization');
+      } else await record(...startingEvents);
       admitted = true;
       ctl.state = 'running_model';
       let toolCount = 0;
@@ -395,7 +420,27 @@ export class AgentKernel {
         toolCount += message.toolCalls.length;
         for (const call of message.toolCalls) seenCallIds.add(call.id);
         ctl.state = 'running_tools';
-        const results = await executeBatch(message.toolCalls, boundTools, ctl.controller.signal);
+        const journalHooks = isDurableExecutionStore(this.store) ? {
+          beforeExecute: async (call: import('../../contracts/src/index.js').ToolCall,
+            definition: import('../../contracts/src/index.js').ToolDefinition, args: unknown): Promise<void> => {
+            const durable = this.store;
+            if (!isDurableExecutionStore(durable)) throw new KernelError('JOURNAL_UNAVAILABLE','Durable execution store changed');
+            await this.commitDurable(sessionId, async latestSeq=>{
+              const lastSeq = await durable.recordToolIntent(sessionId,latestSeq,turnId,call,definition.version,args);
+              return {result:undefined,lastSeq};
+            });
+          },
+          afterExecute: async (_call: import('../../contracts/src/index.js').ToolCall,
+            result: ToolResult): Promise<void> => {
+            const durable = this.store;
+            if (!isDurableExecutionStore(durable)) throw new KernelError('JOURNAL_UNAVAILABLE','Durable execution store changed');
+            await this.commitDurable(sessionId, async latestSeq=>{
+              const lastSeq = await durable.recordLocalReceipt(sessionId,latestSeq,turnId,result);
+              return {result:undefined,lastSeq};
+            });
+          },
+        } : undefined;
+        const results = await executeBatch(message.toolCalls, boundTools, ctl.controller.signal, journalHooks);
         await record(...results.map(r => ({ type: 'tool.result' as const, turnId, data: r })));
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         ctl.state = 'running_model';
