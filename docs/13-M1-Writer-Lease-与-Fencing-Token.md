@@ -88,7 +88,7 @@ try {
 
 ## 五、验证与剩余工作
 
-新增测试覆盖：两个 SQLite 连接同时竞争、过期接管、同 owner 重新获得新 token、续约失效、迟到释放不影响继任者、SIGKILL 后过期接管、fenced append 阻止旧持有者用最新游标写入、过期而尚未接管时拒绝写入、新 Kernel 用新 token 重开已结束会话。CI 运行 Node 22.16.0 与 Node 22.x，测试结果以对应 GitHub Actions 为准。
+新增测试覆盖：两个 SQLite 连接同时竞争、过期接管、同 owner 重新获得新 token、续约失效、迟到释放不影响继任者、SIGKILL 后过期接管、fenced append 阻止旧持有者用最新游标写入、过期而尚未接管时拒绝写入、新 Kernel 用新 token 重开已结束会话，以及 Provider 延迟导致租约失效时拒绝工具执行、保留未完成 Turn 并要求恢复。CI 运行 Node 22.16.0 与 Node 22.x，测试结果以对应 GitHub Actions 为准。
 
 下一阶段优先：
 
