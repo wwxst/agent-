@@ -1,8 +1,8 @@
 # Agent Kernel 中文设计文档
 
-> 文档集版本：v0.1｜维护状态：设计草案｜创建日期：2026-10-24
+> 文档集版本：v0.1｜维护状态：架构草案 + M0/M1 增量实现记录｜更新：2026-10-26
 
-本目录是自研 Agent 内核的**设计草案**。仓库尚未开始内核编码，这些文字定义拟议接口、约束和验收标准，不表示功能已经上线。
+本目录包括自研 Agent 内核的**架构设计草案和已经落地的 M0/M1 增量实现记录**。没有对应代码与真实测试的提议不视为已交付；当前尚未具备生产部署要求。
 
 ## 文档阅读顺序
 
@@ -19,6 +19,8 @@
 | 08 | [开发路线与验收](08-开发路线与验收.md) | M0-M4 阶段、测试矩阵、完成条件 |
 | 09 | [DeepSeek Harness 借鉴评估](09-DeepSeek-Harness-借鉴评估.md) | Cordis、可组合能力、Scope 与可信内核边界 |
 | 10 | [Claude Code 内核源码追踪（第一轮）](10-Claude-Code-内核源码追踪.md) | 2.1.304 Agent Loop、ToolCall、权限、回填和 2.1.88 对照 |
+| M1-11 | [安全重开与恢复边界](11-M1-会话重开与恢复边界.md) | 已实现 session 重开、未决 Turn 停机保护、校验测试 |
+| M1-12 | [SQLite WAL 事件日志](12-M1-SQLite-WAL-事件日志.md) | 已实现事务 CAS、跨连接与 SIGKILL 测试；租约尚未实现 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
@@ -45,4 +47,4 @@
 
 ## 建议从哪里开始
 
-先完成 M0 的 contracts、FakeProvider、MemoryEventStore 和 FakeToolHost，然后在无网络情况下验证最小 Agent Loop。第一个目标不是 UI，而是可重复执行并通过测试的单 Agent 状态机。
+当前 M0 已有可运行的单 Agent 状态机与确定性测试；M1 的 session 重开和 SQLite WAL 日志已有增量代码。下一步优先做跨进程租约与 Tool Intent/Receipt，不是先做 UI 或放开不受信任工具执行。

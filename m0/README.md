@@ -4,7 +4,7 @@
 
 ## 先验验证
 
-- Node.js 22+；TypeScript 5.x；运行前安装开发依赖：`npm install`。
+- 仓库当前要求 Node.js >=22.16.0（因新增的 M1 SQLite 模块）；TypeScript 5.x；运行前安装开发依赖：`npm install`。
 - `npm run check`：严格 TypeScript 类型检查。
 - `npm test`：编译 + Node 内建测试运行器的确定性测试。
 
@@ -27,6 +27,6 @@
 
 ## 明确没有实现
 
-真实模型适配器、独立 OS Tool Host / 沙箱、审批凭据、SQLite 事务 Event Journal、持久恢复、上下文压缩、Subagent、MCP/Skills、Desktop/Web API、跨进程锁以及流控/重试。以上属于 M1–M4，不应该把本阶段声称为完整产品。
+本节仅对应历史 M0 阶段。M0 时尚无 SQLite 事务 Event Journal；后续 M1 增量已另行实现会话安全重开和 SQLite WAL 接口（详见 [M1 SQLite 文档](../docs/12-M1-SQLite-WAL-事件日志.md)），但**跨进程锁、Tool Intent/Receipt、持久故障自动恢复仍未实现**。真实模型、隔离 Tool Host / 沙箱、审批凭据、上下文压缩、Subagent、MCP/Skills、Desktop/Web API 和流控/重试同样尚未完成。
 
-研究依据：[四内核对照](https://github.com/wwxst/agent-/tree/docs/agent-kernel-design-v0.1/docs/research/comparative)，[ADR 0005](https://github.com/wwxst/agent-/blob/docs/agent-kernel-design-v0.1/docs/adr/0005-首版自主内核技术基线与取舍.md)。
+研究依据：[四内核对照](https://github.com/wwxst/agent-/tree/main/docs/research/comparative)，[ADR 0005](https://github.com/wwxst/agent-/blob/main/docs/adr/0005-首版自主内核技术基线与取舍.md)。
