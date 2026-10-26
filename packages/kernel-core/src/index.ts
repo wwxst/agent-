@@ -222,6 +222,16 @@ export class AgentKernel {
           }
           receiptByCall.set(data.callId, {receiptId:data.receiptId, outcome:data.outcome, ...(event.turnId ? {turnId:event.turnId} : {})});
         }
+        const intentsById = new Map(intents.map(intent => [intent.callId, intent]));
+        for (const event of events) {
+          if (event.type !== 'tool.result') continue;
+          const result = event.data as ToolResult;
+          if (result.outcome !== 'succeeded' && result.outcome !== 'outcome_unknown') continue;
+          const intent = intentsById.get(result.callId);
+          if (!intent || intent.turnId !== event.turnId || intent.toolName !== result.name) {
+            throw new KernelError('CORRUPT_SESSION_JOURNAL', 'Model-visible tool execution result lacks a matching durable intent');
+          }
+        }
         for (const intent of intents) {
           if (intent.status !== 'settled' || intent.outcome === 'outcome_unknown') {
             throw new KernelError('SESSION_RECOVERY_REQUIRED', 'Unsettled or unknown tool outcome requires explicit reconciliation');
