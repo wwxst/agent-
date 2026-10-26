@@ -1,61 +1,71 @@
-# Agent Kernel
+# Agent Kernel｜自研智能体内核
 
-> **Status: Design Draft v0.1** · **Implementation: Not started** · **Updated: 2026-10-24**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 已实现并通过离线测试（非生产就绪）** · **最后更新：2026-10-26**
 
-一个独立、自主实现、模型与宿主无关的 Agent 内核项目。本仓库从零开始制定架构，不以 Pi、Codex、Claude Code 任一现有运行时作为运行依赖；研究其公开设计，形成自己的状态机、协议、安全边界与扩展接口。
+本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**当前仓库为空仓库初始化阶段。文档描述目标架构，不代表功能已开发、测试或发布。**
+**注意：M0 自主内核现已有可运行 TypeScript 代码，后续 M1–M4（真实 Provider、隔离 Tool Host、SQLite、Subagent 等）仍属计划。** 具体边界见 [M0 源码与运行说明](m0/README.md)。
 
-## 目标
+## 一、项目目标
 
-- 自主实现 Agent Loop、Session/Turn 生命周期、Context、Tools、Policy、Hooks 和 Subagents。
-- 支持多模型 Provider，可替换模型而无需修改 Kernel 的执行流程。
-- 让 Kernel 与工具宿主解耦：本地、沙箱、容器、远程进程均可承载工具。
-- 让 Web、CLI、桌面客户端统一使用自己的版本化协议和事件流。
-- 安全、可恢复、可审计；不把“模型选择做什么”当作“工具已获授权”。
+- 自主实现 Agent Loop、Session/Turn、Context、Tool Scheduler、Policy 与事件流；
+- 接入不同厂商或本地模型，不为每个模型维护独立执行内核；
+- Kernel 与 Tool Host 分离，所有高风险工具经过服务端权限与运行环境验证；
+- 将 API、Web、CLI、桌面客户端与内核解耦；
+- 通过事件日志、幂等控制与明确的副作用状态实现可审计、可恢复的任务执行；
+- 基础可靠性稳定后，再构建 Hooks、Skills、MCP、Subagents 和领域工具。
 
-## 设计来源及边界
+## 二、借鉴什么，不借鉴什么
 
-| 研究来源 | 借鉴方向 | 本项目原则 |
+| 研究对象 | 重点学习 | 自研边界 |
 | --- | --- | --- |
-| [Pi](https://github.com/earendil-works/pi) | 小型 Agent Loop、模型适配、Steering、工具抽象 | 独立实现，不嵌入 Pi 运行时 |
-| [Codex](https://github.com/openai/codex) | Session/Turn/Item、事件、审批与沙箱、恢复 | 参考协议思想，定义自己的协议 |
-| [Claude Code / Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) | Hooks、权限规则、Skills、Subagents | 扩展点可插拔，但安全由宿主强制执行 |
+| [Pi Agent](https://github.com/earendil-works/pi) | 简洁的 Agent Loop、工具和模型流式抽象 | 由本项目实现 Loop，不直接依赖 Pi 内核 |
+| [OpenAI Codex](https://github.com/openai/codex) | Session/Turn、事件、审批、上下文和执行隔离 | 重新定义自己的状态机与协议 |
+| [Claude Code](https://code.claude.com/docs/en/agent-sdk/overview) | Hooks、Skills、权限、多 Agent 扩展 | 扩展不能破坏 Kernel 安全边界 |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | 能力组合、插件作用域、可逆生命周期、Profile | 核心状态机、授权和持久化语义不可由普通插件接管 |
 
-## 第一阶段交付
+## 三、中文设计文档
 
-1. 不依赖上述三套 Agent 的可测试 Agent Loop。
-2. 两种模型适配器与规范化工具调用。
-3. Session / Turn 状态机、事件日志、取消、重连后事件重放。
-4. 受限 workspace 的 Read / Write / Edit / Bash 工具。
-5. 权限审批、预算控制和最小 Web/CLI 协议。
-6. 一组可自动运行的验收测试。
+从 [**中文文档总目录**](docs/README.md) 开始阅读。
 
-**非 v0.1：** 完整 IDE、分布式多 Agent、插件市场、远程 SSH Host、视频剪辑工作台。后者作为面向领域工具的后续扩展目标。
+1. [项目愿景与范围](docs/00-愿景与范围.md)
+2. [总体架构与模块边界](docs/01-总体架构.md)
+3. [Agent 执行循环与状态机](docs/02-执行循环与状态机.md)
+4. [事件日志、数据模型和持久化](docs/03-事件与持久化.md)
+5. [工具、权限、审批和安全](docs/04-工具与安全.md)
+6. [模型 Provider 与上下文压缩](docs/05-模型与上下文.md)
+7. [Hooks、Skills、MCP 与 Subagents](docs/06-扩展与多智能体.md)
+8. [客户端 API 与事件协议](docs/07-客户端协议.md)
+9. [开发路线、测试矩阵与验收](docs/08-开发路线与验收.md)
+10. [DeepSeek Harness 架构研究与借鉴评估](docs/09-DeepSeek-Harness-借鉴评估.md)
+11. [Claude Code 2.1.304/2.1.88 内核源码追踪（第一轮）](docs/10-Claude-Code-内核源码追踪.md)
+12. [Claude Code 多轮源码研究（含沙箱、Shell 执行、SDK、Bridge）](docs/research/claude-code/README.md)
+13. **[四套 Agent 内核源码对照与自研取舍（持续深研）](docs/research/comparative/README.md)**：Pi 的 Coding Agent 产品层、Codex 的 App Server/持久化、Claude Code 2.1.304/Desktop、DeepSeek Native/PTC，并记录 [12 条执行不变量](docs/research/comparative/11-跨内核不变量与架构评审门槛.md)。
+14. **[四内核证据审计与正式技术取舍](docs/research/comparative/14-自研内核架构取舍正式评审稿.md)**：推荐 TS Kernel、SQLite WAL、可信 Tool Host、S2 调度。详见 [研究完成边界](docs/research/comparative/15-研究完成判据与剩余缺口.md)，未运行测试不得称完成。
 
-## 文档导航
+附加约束：
 
-详细文档将集中在 `docs/`：
+- [ADR 0001：自主实现内核与宿主隔离（提议）](docs/adr/0001-自主内核与宿主隔离.md)
+- [ADR 0002：能力组合与可信内核边界（提议）](docs/adr/0002-能力组合与可信内核边界.md)
+- [ADR 0003：远程事件 ACK、持久接受和工具执行收据（提议）](docs/adr/0003-远程控制事件确认与执行收据.md)
+- [ADR 0004：工具隔离与 Interrupt/Cancel 执行语义（提议）](docs/adr/0004-工具执行隔离与中断语义.md)
+- **[ADR 0005：首版自主内核技术基线与取舍（推荐方案，待接受）](docs/adr/0005-首版自主内核技术基线与取舍.md)**
+- [AGENTS.md：AI 开发协作规则](AGENTS.md)
 
-- `docs/00-vision-and-scope.md`：产品边界、设计原则、非目标
-- `docs/01-architecture.md`：总体架构、模块与依赖方向
-- `docs/02-runtime-and-state.md`：Agent Loop、状态机与恢复语义
-- `docs/03-data-and-events.md`：数据结构、事件合同及持久化
-- `docs/04-tools-policy-security.md`：工具、审批、安全边界
-- `docs/05-context-providers.md`：模型适配、上下文与预算
-- `docs/06-extensions-subagents.md`：Hooks、Skills、MCP 和多 Agent
-- `docs/07-api-protocol.md`：客户端协议与错误语义
-- `docs/08-roadmap-and-acceptance.md`：阶段计划、验收与测试
-- `docs/adr/`：架构决策记录
+## 四、第一版范围（拟议）
 
-## 工程约定
+优先实现单 Agent、多模型适配、基础工具、Session/Turn 生命周期、持久事件流、权限审批、取消和故障恢复。先保障正确性与安全，再增加多 Agent、远程 Host 和媒体工作流。
 
-- 首先设计稳定的内部接口和测试，避免只为了某个 Provider 特判核心执行逻辑。
-- `Session` 是持久容器，`Turn` 是一轮用户任务，`Step` 是一次内部模型或工具操作。
-- 先记录意图，再执行有副作用的工具；崩溃恢复时不可盲目重放危险操作。
-- 审批机制不等于操作系统沙箱；不受信任代码必须在有实际隔离措施的执行环境中运行。
-- 用户数据与密钥始终受保护，日志对敏感字段做脱敏。
+**暂不计划在第一版实现**大型插件市场、完整 IDE、分布式集群或视频时间线编辑器。
 
-## 当前状态
+## 五、代码与集成状态
 
-仅文档设计阶段。未来与 `wwxst/agent-web`、`wwxst/agent-cil` 的集成以独立适配层为原则，在确认两者现有接口后另行规划。
+- **M0 已实现**：`packages/contracts`、`packages/kernel-core`、`packages/model-providers`、`packages/tool-scheduler` 和 `packages/event-store-memory`；`tests/kernel.test.ts` 含 17 项离线确定性测试。
+- **本地验证**：Node.js 22.16.0、TypeScript 严格检查 `npm run check` 通过，`npm test` 编译与 17 项测试通过；远程代码与通过测试的本地文件经 Git Blob SHA 核对一致。
+- **不具备**：真实模型、OS 沙箱、SQLite 事务持久化、外部工具收据、MCP/Skills、Subagent 和桌面/Web API。当前禁止不受信任执行工具。
+- **安装和测试**：Node.js >=22；`npm install`、`npm run check`、`npm test`；此环境未能生成离线 package-lock，安装需可用 npm registry。
+- **开发分支**：`feat/kernel-m0-foundation`；来源是 `docs/agent-kernel-design-v0.1`，均未合并到 `main`。
+
+## 六、下一步
+
+巩固 M0 的协议和测试，在后续独立阶段加入真实 Provider、预算与 Steering，再引入 SQLite 事务日志、权限和独立 OS Tool Host。完整目标保持不变，逐步验证实现。
