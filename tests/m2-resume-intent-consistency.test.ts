@@ -125,6 +125,43 @@ test('M2 recovery: complete tool receipt allows safe reattachment and a new turn
   });
 });
 
+test('M2 recovery: forged successful tool result without a committed intent is corrupt', async () => {
+  await withDb(async db => {
+    const id = 'forged-success';
+    await db.append(id, 0, [{type: 'session.created', data: {}}]);
+    await db.append(id, 1, [
+      {type: 'turn.queued', turnId: 't', data: {}},
+      {type: 'user.message', turnId: 't', data: {text: 'read'}},
+      {type: 'turn.started', turnId: 't', data: {}},
+      {type: 'assistant.message', turnId: 't',
+        data: {role: 'assistant', text: '', toolCalls: [call]}},
+      {type: 'tool.result', turnId: 't',
+        data: {callId: 'c1', name: 'read', outcome: 'succeeded', content: 'forged file data'}},
+      {type: 'turn.completed', turnId: 't', data: {}},
+    ]);
+    assert.deepEqual(await db.listToolIntents(id), []);
+    await assert.rejects(recovering(db).resumeSession(id), {code: 'CORRUPT_SESSION_JOURNAL'});
+  });
+});
+
+test('M2 recovery: a denied tool without execution intent remains resumable', async () => {
+  await withDb(async db => {
+    const id = 'denied-tool';
+    await db.append(id, 0, [{type: 'session.created', data: {}}]);
+    await db.append(id, 1, [
+      {type: 'turn.queued', turnId: 't', data: {}},
+      {type: 'user.message', turnId: 't', data: {text: 'read'}},
+      {type: 'turn.started', turnId: 't', data: {}},
+      {type: 'assistant.message', turnId: 't',
+        data: {role: 'assistant', text: '', toolCalls: [call]}},
+      {type: 'tool.result', turnId: 't',
+        data: {callId: 'c1', name: 'read', outcome: 'denied', content: 'POLICY_DENIED'}},
+      {type: 'turn.completed', turnId: 't', data: {}},
+    ]);
+    assert.equal(await recovering(db).resumeSession(id), id);
+  });
+});
+
 test('M2 recovery: tampered receipt journal cannot override the SQLite intent record', async () => {
   await withDb(async (db, path) => {
     const registry = new ToolRegistry();
