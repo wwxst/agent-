@@ -1,6 +1,6 @@
-# M1 第一批：真实模型流协议与 Step 准入
+# M1：真实模型流协议、Step 准入与 Context 预算
 
-> 2026-10-26 · 开发分支 `feat/kernel-m1-provider-stream`。本阶段已经实现并离线测试 **OpenAI 兼容 Chat Completions SSE**；未提供或使用真实 API 密钥，未进行真实服务端的计费请求。
+> **2026-10-26 第二批更新**：原生 Anthropic Messages + 序列化字符预算；45/45 离线测试已通过。具体范围见 [增量说明](../M1-INCREMENT-2026-10-26.md)。旧文中 31 项数字仅描述第一批成果。\n\n> 2026-10-26 · 开发分支 `feat/kernel-m1-provider-stream`。本阶段已经实现并离线测试 **OpenAI 兼容 Chat Completions SSE**；未提供或使用真实 API 密钥，未进行真实服务端的计费请求。
 
 ## 可运行的内容
 
@@ -35,7 +35,7 @@ npm run cli -- 'Hello from my own Agent Kernel'
 ## 核心限制
 
 1. **没有发起过真实收费 API 请求**：只有模拟 `fetch` 的离线 HTTP 协议测试；真实供应商的事件格式差异、限额和网络故障仍需联调。
-2. **不是全面 M1/生产产品**：当前只支持文本、OpenAI 兼容 Chat Completions SSE，不支持原生 Anthropic Messages、OpenAI Responses 全部特性、OAuth、图片和推理用量对账。
+2. **不是全面 M1/生产产品**：当前只支持文本、OpenAI 兼容 Chat Completions SSE，已新增原生 Anthropic Messages 的基础 text/tool_use，但不支持 thinking/server tools；也不支持 OpenAI Responses 全部特性、OAuth、图片和推理用量对账。
 3. **内核仍非持久化**：MemoryEventStore，重启即丢；Steering 的“接受”只进入进程内日志。M2 才引入事务型 SQLite / 跨进程收据。
 4. **没有 OS Tool Host 安全边界**：注册 ToolDefinition 只可用于可信只读工具/离线测试，**不得注册不可信或写入型工具**。
 5. **构建可重复性待加强**：本开发环境缺 npm registry 的离线缓存，无法生成/验证 `package-lock.json`；从公共 registry 安装时应再生成并提交锁文件，运行 CI 验证 Node LTS 版本。
