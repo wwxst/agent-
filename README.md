@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 第一批已实现（31 项离线测试通过，非生产就绪）** · **最后更新：2026-10-26**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 两批协议基础已实现（45 项离线测试通过，非生产就绪）** · **最后更新：2026-10-26**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 已合并 main，M1 第一批已在开发分支实现 OpenAI 兼容 Chat Completions SSE Provider、Step ToolSet 快照和 Steering；没有真实 API 密钥联调。M1 其余能力及 M2–M4 仍待开发。** 参见 [M0 说明](m0/README.md) 与 [M1 第一批说明](m1/README.md)。
+**注意：M0 已合并 main，M1 已在开发分支实现 OpenAI 兼容 Chat Completions SSE、原生 Anthropic Messages SSE、Step ToolSet 快照、Steering 和字符预算入场；没有真实 API 密钥联调。M1 其余能力及 M2–M4 仍待开发。** 参见 [M0 说明](m0/README.md) 与 [M1 第一批说明](m1/README.md)。
 
 ## 一、项目目标
 
@@ -61,12 +61,12 @@
 ## 五、代码与集成状态
 
 - **M0 已合并 main**：自主 Agent Loop、MockProvider、只读 Tool Scheduler、内存 EventStore 和 17 项基础测试。
-- **M1 第一批（本开发分支）**：OpenAI 兼容 Chat Completions SSE Adapter、Step ToolSet 绑定、按 Turn ID Steering、基本真实模型文本 CLI；新增 14 项协议/竞态测试，合计 **31 项测试通过**。
+- **M1 第一批（本开发分支）**：OpenAI 兼容 Chat Completions SSE Adapter、Step ToolSet 绑定、按 Turn ID Steering、基本真实模型文本 CLI；新一轮再新增 14 项协议/预算测试，合计 **45 项测试通过**。
 - **验证范围**：Node.js 22.16.0、`npm run check` 和 `npm test` 通过；新 Provider 的 HTTP 流使用模拟 Fetch，不代表已经用实际付费模型联调。查看 [M1 开发说明](m1/README.md)。
-- **仍未具备**：原生 Anthropic/Responses 全部接口、OS 沙箱、SQLite 事务持久化、审批凭据、外部工具收据、MCP/Skills、Subagent、Web/Desktop API。**不得注册不可信/高风险工具。**
+- **仍未具备**：Anthropic thinking/server-tool、多模态与原生 Responses 接口、OS 沙箱、SQLite 事务持久化、审批凭据、外部工具收据、MCP/Skills、Subagent、Web/Desktop API。**不得注册不可信/高风险工具。**
 - **安装与验证**：Node.js >=22；`npm install`、`npm run check`、`npm test`；目前无法离线生成 package-lock，首次安装需要 npm registry。
 - **分支**：M0 和设计研究已进入 `main`；M1 在 `feat/kernel-m1-provider-stream`，尚未合并。
 
 ## 六、下一步
 
-继续 M1：补全 Provider 能力与协议兼容测试、精细化 Context/预算入场；然后进入 M2 的 SQLite DurableEventStore、可信 ApprovalRoot 与独立 ToolHost。
+继续 M1：补全原生 Provider 能力、真实 Token 估计/Context 压缩和可复现 CI；然后进入 M2 的 SQLite DurableEventStore、可信 ApprovalRoot 与独立 ToolHost。
