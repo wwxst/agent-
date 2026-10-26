@@ -15,5 +15,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["packages/**/*.ts", "tests/**/*.ts"]
+  "include": ["packages/**/*.ts", "tests/**/*.ts", "apps/**/*.ts"]
 }
