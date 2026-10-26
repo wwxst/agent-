@@ -1,5 +1,7 @@
 # M1：真实模型流协议、Step 准入与 Context 预算
 
+> **2026-10-26 第三批更新**：新增两种 Provider 的实际 Usage 解析、每 User Turn Token 累计限额、只压缩已完成旧 Turn 的 Context Checkpoint；**60/60 离线测试通过**。详细规则及限制见 [第三批源码与验收记录](../M1-USAGE-CHECKPOINT-2026-10-26.md)。早期 31/45 项数字是历史批次记录。
+
 > **2026-10-26 第二批更新**：原生 Anthropic Messages + 序列化字符预算；45/45 离线测试已通过。具体范围见 [增量说明](../M1-INCREMENT-2026-10-26.md)。旧文中 31 项数字仅描述第一批成果。\n\n> 2026-10-26 · 开发分支 `feat/kernel-m1-provider-stream`。本阶段已经实现并离线测试 **OpenAI 兼容 Chat Completions SSE**；未提供或使用真实 API 密钥，未进行真实服务端的计费请求。
 
 ## 可运行的内容
