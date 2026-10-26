@@ -241,3 +241,69 @@ test('M0: rejected duplicate turn does not append a new terminal event', async (
   await assert.rejects(kernel.runTurn(session, 'again', 'same'), { code: 'DUPLICATE_TURN' });
   assert.deepEqual(await kernel.readEvents(session), before);
 });
+
+
+test('M1: reopen completed session and append contiguous events without rerunning old tools', async () => {
+  const store = new MemoryEventStore();
+  const first = new AgentKernel(store, new FakeProvider([[finish('first reply')]]), new ToolRegistry());
+  const session = await first.createSession('reopen-me');
+  assert.equal((await first.runTurn(session, 'first prompt', 't1')).status, 'completed');
+  const previous = await store.read(session);
+  const nextProvider = new FakeProvider([[finish('second reply')]]);
+  const reopened = new AgentKernel(store, nextProvider, new ToolRegistry());
+  assert.equal(await reopened.openSession(session), session);
+  assert.equal((await reopened.runTurn(session, 'second prompt', 't2')).status, 'completed');
+  const events = await reopened.readEvents(session);
+  assert.deepEqual(events.map(e => e.seq), events.map((_, i) => i + 1));
+  assert.deepEqual(events.slice(0, previous.length), previous);
+  assert.equal(events.filter(e => e.type === 'session.created').length, 1);
+  assert.deepEqual(nextProvider.requests[0]?.map(m => m.role), ['user', 'assistant', 'user']);
+});
+
+test('M1: unfinished turn blocks reopen and is not silently replayed or amended', async () => {
+  const store = new MemoryEventStore();
+  await store.append('interrupted', 0, [
+    { type: 'session.created', data: {} },
+    { type: 'turn.queued', turnId: 'pending', data: {} },
+    { type: 'user.message', turnId: 'pending', data: { text: 'run something' } },
+    { type: 'turn.started', turnId: 'pending', data: {} },
+  ]);
+  const before = await store.read('interrupted');
+  const kernel = new AgentKernel(store, new FakeProvider([]), new ToolRegistry());
+  await assert.rejects(kernel.openSession('interrupted'), { code: 'RECOVERY_REQUIRED' });
+  assert.deepEqual(await store.read('interrupted'), before);
+  await assert.rejects(kernel.runTurn('interrupted', 'new turn'), { code: 'UNKNOWN_SESSION' });
+});
+
+test('M1: log gaps and overlapping turn admissions fail closed', async () => {
+  const store = new MemoryEventStore();
+  await store.append('corrupt', 0, [
+    { type: 'session.created', data: {} },
+    { type: 'turn.queued', turnId: 'a', data: {} },
+    { type: 'turn.queued', turnId: 'b', data: {} },
+  ]);
+  const kernel = new AgentKernel(store, new FakeProvider([]), new ToolRegistry());
+  await assert.rejects(kernel.openSession('corrupt'), { code: 'CORRUPT_EVENT_LOG' });
+  const gapReader = {
+    append: (id: string, seq: number, drafts: readonly import('../packages/contracts/src/index.js').EventDraft[]) =>
+      store.append(id, seq, drafts),
+    read: async (id: string, afterSeq?: number) => {
+      const events = await store.read(id, afterSeq);
+      return events.map((e, i) => i === 1 ? { ...e, seq: 99 } : e);
+    },
+  };
+  const gapKernel = new AgentKernel(gapReader, new FakeProvider([]), new ToolRegistry());
+  await assert.rejects(gapKernel.openSession('corrupt'), { code: 'CORRUPT_EVENT_LOG' });
+  await assert.rejects(kernel.openSession('absent'), { code: 'UNKNOWN_SESSION' });
+});
+
+test('M1: concurrent opens share an admission fence and duplicate open is rejected', async () => {
+  const store = new MemoryEventStore();
+  const original = new AgentKernel(store, new FakeProvider([]), new ToolRegistry());
+  await original.createSession('same');
+  const kernel = new AgentKernel(store, new FakeProvider([]), new ToolRegistry());
+  const a = kernel.openSession('same');
+  await assert.rejects(kernel.openSession('same'), { code: 'SESSION_EXISTS' });
+  assert.equal(await a, 'same');
+  await assert.rejects(kernel.openSession('same'), { code: 'SESSION_EXISTS' });
+});
