@@ -1,4 +1,4 @@
-> **2026-10-26 第三批更新（CI 已通过）**：恢复阶段同时核对 Event Journal、Tool Intent 和 Local Receipt。拒绝 pending/outcome_unknown 工具，即使模型侧已有配对的 tool.result；为未知结果保留状态而不自动重新执行。增加 GitHub Actions 自动执行 TypeScript 与全部测试。本阶段累计 100 项测试（M1 69 + M2 首批 16 + Tool Intent 10 + 恢复一致性 5），CI 运行见 [Kernel checks](https://github.com/wwxst/agent-/actions/runs/40328962997)。详见 [第三批安全审计](../M2-RECOVERY-INTEGRITY-2026-10-26.md)。
+> **2026-10-26 第三批更新（CI 已通过）**：恢复阶段同时核对 Event Journal、Tool Intent 和 Local Receipt。拒绝 pending/outcome_unknown 工具，即使模型侧已有配对的 tool.result；为未知结果保留状态而不自动重新执行。增加 GitHub Actions 自动执行 TypeScript 与全部测试。本阶段累计 102 项测试（M1 69 + M2 首批 16 + Tool Intent 10 + 恢复一致性 7），CI 运行见 [Kernel checks](https://github.com/wwxst/agent-/actions/runs/40328962997)。详见 [第三批安全审计](../M2-RECOVERY-INTEGRITY-2026-10-26.md)。
 
 > **2026-10-26 第二批更新**：`runTurn` 的 Turn 接受已和 SQLite Command Journal 同事务；新增 Tool Intent / Local Receipt / OutcomeUnknown 协调与 10 项故障测试。**95/95 项通过**。具体边界见 [M2 第二批](../M2-INTENT-RECEIPT-2026-10-26.md)。
 

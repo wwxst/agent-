@@ -23,7 +23,8 @@ acceptCommand + turn.queued/user.message/turn.started (一笔 SQLite 事务)
 1. 恢复时除检查日志中的 Session/Turn/ToolCall 与 Context Checkpoint 外，额外调用 `DurableExecutionStore.listToolIntents(sessionId)`。
 2. 任意 Intent 状态 `pending` 或 `outcome_unknown` → `SESSION_RECOVERY_REQUIRED`，不重新执行、不自动标记成功。
 3. 状态为 `settled` 的 Intent，必须找到匹配的 `tool.local_receipt` 事件；收据 ID、Turn ID、结果与 SQL 行一致，否则日志为 `CORRUPT_SESSION_JOURNAL`。
-4. 当测试级 Local Receipt 本身报告 `outcome_unknown`，持久表写入的状态仍为 `outcome_unknown` 而不是 `settled`；旧数据即使状态误标 `settled`，恢复也复核 `outcome`。
+4. 成功的模型可见 ToolResult 必须匹配已经入账的 Tool Intent；无 Intent 的伪造成功结果会被判为日志损坏。尚未实际执行的 Denied 结果无需伪造收据。
+6. 当测试级 Local Receipt 本身报告 `outcome_unknown`，持久表写入的状态仍为 `outcome_unknown` 而不是 `settled`；旧数据即使状态误标 `settled`，恢复也复核 `outcome`。
 5. `markUnconfirmedToolsUnknown` 可以在已终结的 Turn 后补写 `tool.outcome_unknown` 审计事件，恢复验证器识别该事件，但仍拒绝将未知副作用当成普通已完成会话。
 6. 已结清的、收据匹配的只读工具会话仍可正常恢复并继续新的 Turn。
 
@@ -37,7 +38,7 @@ acceptCommand + turn.queued/user.message/turn.started (一笔 SQLite 事务)
 - 磁盘中 `tool.local_receipt` 事件与 SQL Intent 收据 ID 不一致，恢复拒绝。
 - 即使已写入 Local Receipt，只要结果是 `outcome_unknown`，恢复仍拒绝。
 
-全量包括 M1 69、M2 第一批 16、M2 第二批 10、本批新增 5，共计 **100 个测试用例**。本轮 GitHub Actions Node 22.16.0 CI 的 `npm run check` 与 `npm test` 运行成功，见 [CI run](https://github.com/wwxst/agent-/actions/runs/40328962997)。
+全量包括 M1 69、M2 第一批 16、M2 第二批 10、本批新增 7，共计 **102 个测试用例**。本轮 GitHub Actions Node 22.16.0 CI 的 `npm run check` 与 `npm test` 运行成功，见 [CI run](https://github.com/wwxst/agent-/actions/runs/40328962997)。
 
 ## 当前可靠性边界
 
