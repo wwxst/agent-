@@ -71,14 +71,14 @@ Agent.send / steer / inject / followup
 
 但是并发分类仍主要基于**单工具的一元安全属性**。官方 README 明确指出，如果安全与兄弟调用或读写资源冲突有关，应保守使用独占，不能据此证明具备全资源冲突图。
 
-## 五、最重要的细节：Session Event != 已经持久化
+> **2026-10-26 复核更正**：本节过去将“Session 事件缓冲”与“显式 SessionHandle.append”混为一谈，现已根据 [JSONL 后端源码的复核](12-四内核执行与持久化证据审计.md) 更正；不得再引用旧表述。\n\n## 五、最重要的细节：Session Event != 已经持久化
 
 [`persistence.md`](https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/docs/subsystems/persistence.md) 对接口语义区分十分明确：
 
 - `Session` 是进程中的 append-only Event Log，记录模型可见的事实，后续通过 `deriveMessages` 生成模型历史；
 - `session/event` 是提交后的观察通知；持久化由插件/SessionPersistence 处理；
-- `SessionHandle.append(events)` 要求事件序号连续、不可改写，但**成功返回并不必然意味着掉电后保证存活**，某些后端允许缓冲；
-- **只有 `SessionHandle.flush()`** 构成明确持久化屏障。写 Handle 的 close 会 drain；
+- **区分两个 append**：进程内 `Session.append()` 的实时事件可先进入持久化服务的批处理缓冲；但 JSONL 后端的显式 `SessionHandle.append(events)` 要经过 `persistContiguous()`/后端持久写入才完成。不能笼统把 Handle.append 的成功也称为“仅缓冲”；
+- 对已持久物化的 JSONL Handle，`flush()` 可能直接返回（显式 Handle.append 已有持久写入合同）；对未物化的空 Session，`flush()` 可以强制物化。`close()` 会 drain 实时路由缓冲，但根作用域关闭的竞态仍有产品层缺口；
 - `SessionPersistence.open(id,'write')` 声明单写入所有权，读者可只读观察，保护恢复过程不会与另一写者同时改动。
 
 这一点意味着不要把产品文档中的“Event Sourcing”直接翻译成“每个状态变更先写盘再做副作用”。这两个系统性质不同，需要针对危险 ToolCall 额外制定强制 `flush` 时机或工具意图事务机制。
