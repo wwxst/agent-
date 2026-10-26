@@ -16,7 +16,7 @@
 - `read(sessionId, afterSeq)` 从 SQLite 按序重放；`close()` 关闭连接；
 - 对已完成 Turn，结合 `AgentKernel.openSession()` 在新 `AgentKernel` 实例中读取完整事件并继续追加新 Turn；对未结束 Turn 继续 fail closed。
 
-**关键区别**：日志 `append` 提供事务 CAS，不等于同一 Session 的跨进程**独占执行租约**。两个 Kernel 进程可以在工具层同时执行（即使其中一个较晚遭遇存储 CAS 冲突）。未来引入有副作用工具之前必须解决这一点。
+**关键区别**：日志 `append` 提供事务 CAS；后续 M1 租约增量增加了可选事务内 Fencing 校验（详见 [Writer Lease](13-M1-Writer-Lease-与-Fencing-Token.md)），但**默认旧构造器仍不带栅栏**，而且 Kernel 尚未自动持有/续约租约。两个 Kernel 仍可能在工具层同时执行。引入副作用工具前必须补足可信调度和 Host 强制检查。
 
 ## 2. 持久化模型
 
@@ -76,13 +76,13 @@ try {
 | 进程终止在已提交之后 | 已有 SIGKILL 重开测试 |
 | 进程终止在未提交事务期间 | 依赖 SQLite 事务机制；尚无专门故障注入测试 |
 | 崩溃时正在执行 Tool | 未实施 Intent/Receipt 协议，禁止有副作用工具，遇未决 Turn 不自动恢复 |
-| 多实例运行同一 Session | **尚无执行租约；不要部署成多写者执行服务** |
+| 多实例运行同一 Session | **已有租约基础原语，但 Kernel 自动租约管理尚未实现；不要部署成多写者执行服务** |
 | WAL 损坏、设备掉电、备份恢复 | 尚无完整演练 |
 | 租户鉴权、密钥、数据加密 | 未实现，不能处理受监管生产数据 |
 
 ## 6. 下一批实现顺序
 
-1. Session **writer lease + fencing token**（数据库内创建/续约/失效事务协议），保证只有一个执行拥有者；
+1. 将已实现的 SQLite writer lease/fencing 原语接入可信 Kernel 自动准入、续租、丢失中断，并通过跨进程执行验证；
 2. Tool Intent/Receipt/Outcome Unknown 原子日志与恢复检查；
 3. SQLite schemaVersion、migration、数据清理/备份机制；
 4. 将阻塞的 `DatabaseSync` 存储访问封装为 worker 或换异步实现，验证压力下延迟；
