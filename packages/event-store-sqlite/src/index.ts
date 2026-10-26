@@ -251,8 +251,11 @@ export class SQLiteEventStore implements DurableExecutionStore {
       const receiptId = randomUUID();
       const events = this.writeEvents(sessionId,expectedSeq,[{type:'tool.local_receipt',turnId,
         data:{callId:result.callId,receiptId,outcome:result.outcome,source:'in_process_read_only_test'}}]);
-      this.db.prepare("UPDATE tool_intents SET status='settled',receipt_id=?,outcome=? WHERE session_id=? AND call_id=?")
-        .run(receiptId,result.outcome,sessionId,result.callId);
+      // A receipt may confirm only that the outcome is UNKNOWN. It does not
+      // authorize recovery or a blind retry of the attempted operation.
+      const status = result.outcome === 'outcome_unknown' ? 'outcome_unknown' : 'settled';
+      this.db.prepare("UPDATE tool_intents SET status=?,receipt_id=?,outcome=? WHERE session_id=? AND call_id=?")
+        .run(status,receiptId,result.outcome,sessionId,result.callId);
       return events.at(-1)!.seq;
     });
   }
