@@ -17,7 +17,7 @@ function positiveEnv(name: string): number | undefined {
   return value;
 }
 if (!message || !key || !model || !['openai-compatible', 'anthropic'].includes(type)) {
-  console.error('Usage: AGENT_PROVIDER=openai-compatible|anthropic AGENT_API_KEY=<key> AGENT_MODEL=<model> [AGENT_API_BASE_URL=https://.../v1] [AGENT_MAX_OUTPUT_TOKENS=1024] [AGENT_MAX_CONTEXT_CHARS=...] npm run cli -- "Your prompt"');
+  console.error('Usage: AGENT_PROVIDER=openai-compatible|anthropic AGENT_API_KEY=<key> AGENT_MODEL=<model> [AGENT_API_BASE_URL=https://.../v1] [AGENT_MAX_OUTPUT_TOKENS=1024] [AGENT_MAX_CONTEXT_CHARS=...] [AGENT_MAX_TURN_TOKENS=...] npm run cli -- "Your prompt"');
   process.exitCode = 2;
 } else {
   const ctrl = new AbortController();
@@ -28,8 +28,10 @@ if (!message || !key || !model || !['openai-compatible', 'anthropic'].includes(t
           ...(baseUrl ? {baseUrl} : {})})
       : new OpenAICompatibleProvider({apiKey:key,model,...(baseUrl ? {baseUrl} : {})});
     const maxContextCharacters = positiveEnv('AGENT_MAX_CONTEXT_CHARS');
+    const maxTotalTokens = positiveEnv('AGENT_MAX_TURN_TOKENS');
     const kernel = new AgentKernel(new MemoryEventStore(),provider,new ToolRegistry(),
-      {...(maxContextCharacters === undefined ? {} : {maxContextCharacters})},text=>process.stdout.write(text));
+      {...(maxContextCharacters === undefined ? {} : {maxContextCharacters}),
+        ...(maxTotalTokens === undefined ? {} : {maxTotalTokens})},text=>process.stdout.write(text));
     const session=await kernel.createSession();
     // The CLI registers NO OS/file/network tools. Providers only receive text capabilities.
     const work=kernel.runTurn(session,message,'cli-turn');

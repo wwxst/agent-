@@ -17,17 +17,21 @@ export type AssistantMessage = Readonly<{
 }>;
 export type ContextMessage =
   | Readonly<{ role: 'user'; text: string }>
+  | Readonly<{ role: 'summary'; text: string }>
   | AssistantMessage
   | Readonly<{ role: 'tool'; result: ToolResult }>;
 
 /** Tool calls only become executable when a complete message event is delivered. */
 export type ProviderEvent =
   | Readonly<{ type: 'text_delta'; text: string }>
+  | Readonly<{type: 'usage'; usage: ModelTokenUsage}>
   | Readonly<{
       type: 'message_complete';
       message: AssistantMessage;
       finishReason: 'stop' | 'tool_use' | 'length';
     }>;
+/** Provider-reported usage, not an estimated tokenization of local text. */
+export type ModelTokenUsage = Readonly<{inputTokens: number; outputTokens: number}>;
 /** Frozen per model step: a provider cannot silently see the next step’s tool catalog. */
 export interface ModelStepRequest {
   readonly stepId: string;
@@ -65,7 +69,7 @@ export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.result'
   | 'turn.completed' | 'turn.failed' | 'turn.cancelled'
-  | 'turn.steer_queued' | 'turn.steer_consumed';
+  | 'turn.steer_queued' | 'turn.steer_consumed' | 'model.usage' | 'context.checkpoint';
 
 export interface EventDraft {
   readonly type: KernelEventType;

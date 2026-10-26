@@ -8,6 +8,10 @@ export interface ContextAdmission {
   readonly serializedCharacters: number;
   readonly limit: number;
 }
+/** Compactor is a trusted, explicitly configured projection adapter. No automatic rewriting of source facts. */
+export interface ContextCompactor {
+  compact(messages: readonly ContextMessage[], signal: AbortSignal): Promise<string>;
+}
 export function admitContext(messages: readonly ContextMessage[], step: ModelStepRequest, budget: ContextBudget): ContextAdmission {
   const {maxSerializedCharacters: limit} = budget;
   if (!Number.isSafeInteger(limit) || limit < 1) throw new KernelError('INVALID_CONTEXT_BUDGET', 'Invalid serialized context budget');
