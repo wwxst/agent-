@@ -1,3 +1,5 @@
+> **2026-10-26 第三批更新（CI 已通过）**：恢复阶段同时核对 Event Journal、Tool Intent 和 Local Receipt。拒绝 pending/outcome_unknown 工具，即使模型侧已有配对的 tool.result；为未知结果保留状态而不自动重新执行。增加 GitHub Actions 自动执行 TypeScript 与全部测试。本阶段累计 100 项测试（M1 69 + M2 首批 16 + Tool Intent 10 + 恢复一致性 5），CI 运行见 [Kernel checks](https://github.com/wwxst/agent-/actions/runs/40328962997)。详见 [第三批安全审计](../M2-RECOVERY-INTEGRITY-2026-10-26.md)。
+
 > **2026-10-26 第二批更新**：`runTurn` 的 Turn 接受已和 SQLite Command Journal 同事务；新增 Tool Intent / Local Receipt / OutcomeUnknown 协调与 10 项故障测试。**95/95 项通过**。具体边界见 [M2 第二批](../M2-INTENT-RECEIPT-2026-10-26.md)。
 
 # M2 第一批：SQLite Event Journal 与事务型命令接受
@@ -33,7 +35,7 @@ const session = await kernel.createSession();
 store.close();
 ```
 
-事务型命令入场（当前为独立 Store API，**尚未连接 AgentKernel.runTurn / CLI 路由**）：
+事务型命令入场：**当前已接入 AgentKernel.runTurn 的 SQLite 路径**，但还没有完整 HTTP 客户端接入。底层 Store API 示例：
 
 ```ts
 const current = await store.read(session);
@@ -42,7 +44,7 @@ const ack = await store.acceptCommand(session, current.length, 'unique-request-i
 // ack.replayed === true 表示相同命令此前已提交，不会重复追加。
 ```
 
-上例表示事务型命令接受与事件写入合同，不是启动另一个 Agent Turn 的生产 API。调用方不要在命令 payload 中存储 API Key、凭据或不必要的敏感信息。
+上例仅展示 Store 层命令写入；Kernel 会在 `runTurn(sessionId, text, turnId, commandId)` 中调用 `acceptCommand` 并与 `turn.queued/user.message/turn.started` 同事务写入。相同 Command ID 的重放被拒绝再次执行模型，不会把重复命令当成新的授权。调用方不要在事件载荷中存储 API Key、凭据或不必要的敏感信息。
 
 ## 可证明的边界
 
@@ -54,8 +56,8 @@ const ack = await store.acceptCommand(session, current.length, 'unique-request-i
 
 ## 没有实现的部分
 
-- `AgentKernel.runTurn()` **尚未接入事务型 `acceptCommand` 命令入场**，客户端级 requestId 幂等控制仍是下一步。
-- 真实 OS Tool Host、审批签名、Tool Intent/Receipt 和 Worker Epoch 尚未实现。
+- `AgentKernel.runTurn()` 已在 SQLite 路径连接事务型 `acceptCommand`，但客户端级 requestId 传输、跨进程活跃 Turn 租约与完整重连协议尚未实现。
+- 已实现 Tool Intent 与 **本进程可信只读工具的测试级 Local Receipt**；**真实独立 OS Tool Host、签名审批、外部执行回执验证及 Worker Epoch 尚未实现**。不可将 Local Receipt 称为已验证的外部 Host Receipt。
 - SQLite `DatabaseSync` 会阻塞 Node 事件循环，不建议直接作为高吞吐 Web 服务器的最终模式；后续应放在专用 Worker/进程里。
 - 只测试子进程 SIGKILL 后重新读取，未做真实断电、目录 fsync、NFS 或存储损坏压力验证。
 - 因 Node 22 `node:sqlite` 仍实验性，生产路线须评估接口变化及长期维护。
