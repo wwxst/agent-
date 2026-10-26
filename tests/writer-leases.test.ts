@@ -272,3 +272,58 @@ test('M1 fenced journal: a session can reopen with a new fenced Kernel instance'
     tmp.cleanup();
   }
 });
+
+
+test('M1 fenced Kernel: lease expiry before a tool call prevents execution and leaves recovery-required turn', async () => {
+  const tmp = temporaryDb();
+  const leases = new SqliteWriterLeaseStore(tmp.path);
+  let journal: SqliteEventStore | undefined;
+  try {
+    const claim = leases.acquire('slow-session', 'slow-worker', 120);
+    assert.ok(claim);
+    journal = new SqliteEventStore(tmp.path, claim);
+    const { AgentKernel } = await import('../packages/kernel-core/src/index.js');
+    const { ToolRegistry } = await import('../packages/tool-scheduler/src/index.js');
+    let called = 0;
+    const registry = new ToolRegistry();
+    registry.register({
+      name: 'read', version: '1', risk: 'read', concurrency: 'parallel',
+      parse: x => x,
+      execute: async () => { called++; return 'should-not-run'; },
+    });
+    const provider = {
+      id: 'delayed',
+      async *stream() {
+        await delay(300);
+        yield {
+          type: 'message_complete' as const,
+          message: {
+            role: 'assistant' as const, text: 'tool pending',
+            toolCalls: [{ id: 'call-1', name: 'read', arguments: {} }],
+          },
+          finishReason: 'tool_use' as const,
+        };
+      },
+    };
+    const kernel = new AgentKernel(journal, provider, registry);
+    await kernel.createSession('slow-session');
+    await assert.rejects(kernel.runTurn('slow-session', 'do work', 'slow-turn'), { code: 'LEASE_LOST' });
+    assert.equal(called, 0);
+    const events = await journal.read('slow-session');
+    assert.equal(events.filter(x => x.type === 'assistant.message').length, 0);
+    assert.equal(events.filter(x => x.type === 'turn.completed').length, 0);
+    const successor = leases.acquire('slow-session', 'new-worker', 5000);
+    assert.ok(successor);
+    const successorJournal = new SqliteEventStore(tmp.path, successor);
+    try {
+      const restarted = new AgentKernel(successorJournal, provider, registry);
+      await assert.rejects(restarted.openSession('slow-session'), { code: 'RECOVERY_REQUIRED' });
+    } finally {
+      successorJournal.close();
+    }
+  } finally {
+    journal?.close();
+    leases.close();
+    tmp.cleanup();
+  }
+});
