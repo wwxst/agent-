@@ -1,4 +1,6 @@
-# M1：真实模型流协议、Step 准入与 Context 预算
+# M1：真实模型流协议、Step 准入、Context 预算与安全恢复
+
+> **2026-10-26 第四批更新**：新增 `resumeSession()`，只重新挂载完整终止的 Session，校验事件序列、ToolCall 结果配对和 Checkpoint 边界；取消事件写入失败仍将 Abort 传给 Provider。**69/69 项离线测试通过**。详见 [恢复与故障说明](../M1-SESSION-RECOVERY-2026-10-26.md)。
 
 > **2026-10-26 第三批更新**：新增两种 Provider 的实际 Usage 解析、每 User Turn Token 累计限额、只压缩已完成旧 Turn 的 Context Checkpoint；**60/60 离线测试通过**。详细规则及限制见 [第三批源码与验收记录](../M1-USAGE-CHECKPOINT-2026-10-26.md)。早期 31/45 项数字是历史批次记录。
 
