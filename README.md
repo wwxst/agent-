@@ -87,7 +87,7 @@
 - **M2 Steering（已合并 main）**：新增在持有租约的活动 Turn 中持久排队指令，按下一模型步骤 FIFO 消费；未消费指令阻止会话重开和新 Command Inbox 接受，新增 9 项含独立 Host 的集成测试。
 - **M2 Context Checkpoint（已合并 main）**：显式可信 Compactor，仅压缩已完整结清的旧 Turn；Checkpoint 保留原始事件摘要 Hash 并强制恢复验证；Steering/租约/崩溃期间 fail-closed，新增 12 项测试。
 - **M2 Command Dispatcher（本轮分支）**：新增唯一 Command→Turn 映射、Fenced SQLite 原子入场、绑定用户文本指纹和崩溃后只读状态；首次执行保留既有 Host Intent/Receipt，重复交付从不重放，新增 12 项测试。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 170 项；以当前提交 CI 为准。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 172 项；以当前提交 CI 为准。
 - **仍未具备**：真实计费 API 端到端联调、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
