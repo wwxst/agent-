@@ -16,7 +16,7 @@ export class AgentKernel {
   private readonly creating = new Set<SessionId>();
   private readonly maxSteps: number;
   private readonly maxToolCalls: number;
-  private readonly assertExecutionLease?: () => void;
+  private readonly assertExecutionLease: (() => void) | undefined;
   constructor(private readonly store: EventStore, private readonly provider: ModelProvider,
     private readonly tools: ToolRegistry, options: KernelOptions = {}, private readonly onDelta?: DeltaListener) {
     this.assertExecutionLease = options.assertExecutionLease;
