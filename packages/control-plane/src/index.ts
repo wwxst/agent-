@@ -126,7 +126,7 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
         }finally{dispatcher.close();}
         const inbox=new SqliteCommandInbox(options.databasePath);
         try{
-          const accepted=inbox.list(sessionId).find(v=>v.commandId===commandId);
+          const accepted=inbox.inspectAccepted(sessionId,commandId!);
           if(accepted)return send(res,200,{command:{
             commandId:accepted.commandId,acceptedSeq:accepted.acceptedSeq,status:'accepted',
           }});
