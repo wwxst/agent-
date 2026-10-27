@@ -3,6 +3,25 @@ import {relative,resolve,isAbsolute,dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import {ProcessToolHost} from './index.js';
 import type {LinuxBubblewrapSandbox} from './sandbox.js';
+import {buildHostSeccompBpf} from './seccomp.js';
+
+/**
+ * The two resource-gated deployment factories are security-boundary APIs,
+ * unlike the deliberately backward-compatible ProcessToolHost constructor.
+ * They must never accept an unfiltered Worker or a user-supplied internal
+ * cgroup launch descriptor.
+ */
+export function assertEnforcedSandboxPolicy(sandbox:LinuxBubblewrapSandbox):void{
+  if(!sandbox || sandbox.seccompPolicy!=='network-and-privilege-deny-v1')
+    throw new KernelError('HOST_SECCOMP_UNAVAILABLE',
+      'An explicit, verified seccomp profile is required by the enforced Tool Host');
+  if(Object.prototype.hasOwnProperty.call(sandbox,'dedicatedCgroup'))
+    throw new KernelError('HOST_INVALID_OPTIONS',
+      'Dedicated cgroup launch metadata may only be created by the trusted factory');
+  // Verify the Linux architecture and deterministic profile BEFORE probing
+  // cgroup state or starting any process. There is no weaker fallback.
+  buildHostSeccompBpf(sandbox.seccompPolicy);
+}
 
 export interface CgroupBudget {
   readonly maxMemoryBytes:number;
@@ -183,6 +202,7 @@ export async function startDedicatedToolHost(options:DedicatedToolHostOptions):P
     ||typeof options.dedicatedCgroupRelativePath!=='string')
     denied('Dedicated cgroup, sandbox and budget are mandatory');
   validateBudget(options.requiredBudget);
+  assertEnforcedSandboxPolicy(options.sandbox);
   if(process.platform!=='linux')return unavailable('Linux-only dedicated Tool Host');
   const root='/sys/fs/cgroup';
   try{
@@ -229,6 +249,7 @@ export async function startEnforcedToolHost(options:EnforcedToolHostOptions):Pro
     || typeof options.databasePath!=='string'||!options.databasePath.trim())
     denied('A Bubblewrap sandbox and cgroup budget are mandatory');
   validateBudget(options.requiredBudget);
+  assertEnforcedSandboxPolicy(options.sandbox);
   const limits=inspectCurrentCgroupV2();
   assertInheritedCgroupBudget(limits,options.requiredBudget);
   const host=new ProcessToolHost(options.databasePath,options.timeoutMs??4000,options.sandbox);
