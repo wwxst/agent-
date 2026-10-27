@@ -307,3 +307,72 @@ test('M2 dispatcher: already failed Turn remains terminal and cannot be executed
     assert.equal(provider.requests.length,1);
   }finally{tmp.close();}
 });
+
+
+test('M2 dispatcher: concurrent duplicate delivery while first Turn runs cannot start second model',async()=>{
+  const tmp=tempDb();
+  let started!:()=>void, release!:()=>void;
+  const modelStarted=new Promise<void>(r=>started=r);
+  const gate=new Promise<void>(r=>release=r);
+  let steps=0;
+  try{
+    await accepted(tmp.path);
+    const provider={
+      id:'controlled',
+      async *stream(){
+        steps++;started();
+        await gate;
+        yield done('completed');
+      },
+    };
+    const one=new ManagedSessionRunner(tmp.path,provider,new ToolRegistry());
+    const two=new ManagedSessionRunner(tmp.path,new FakeProvider([]),new ToolRegistry());
+    const inFlight=one.dispatchCommand('session','command-1');
+    await modelStarted;
+    await assert.rejects(two.dispatchCommand('session','command-1'),{code:'SESSION_BUSY'});
+    release();
+    const first=await inFlight;
+    assert.equal(first.execution?.status,'completed');
+    assert.equal(steps,1);
+    const replay=await two.dispatchCommand('session','command-1');
+    assert.equal(replay.dispatch.replayed,true);
+    assert.equal(replay.dispatch.turnId,first.dispatch.turnId);
+    assert.equal(replay.execution,undefined);
+  }finally{release?.();tmp.close();}
+});
+
+test('M2 dispatcher: process SIGKILL after real model.started never reopens Provider on retry',async()=>{
+  const tmp=tempDb();
+  try{
+    await accepted(tmp.path);
+    const runtimeUrl=new URL('../packages/session-runtime/src/index.js',import.meta.url).href;
+    const toolsUrl=new URL('../packages/tool-scheduler/src/index.js',import.meta.url).href;
+    const script=`
+      const [{ManagedSessionRunner},{ToolRegistry}]=await Promise.all(
+        [import(process.argv[1]),import(process.argv[2])]);
+      const provider={id:'killed-model',async *stream(){
+        process.kill(process.pid,'SIGKILL');
+        yield {type:'message_complete',message:{role:'assistant',text:'no',toolCalls:[]},finishReason:'stop'};
+      }};
+      await new ManagedSessionRunner(process.argv[3],provider,new ToolRegistry(),{ttlMs:200,renewEveryMs:50})
+        .dispatchCommand('session','command-1');
+      process.exitCode=36;
+    `;
+    const child=spawnSync(process.execPath,['--input-type=module','-e',script,
+      runtimeUrl,toolsUrl,tmp.path],{encoding:'utf8',timeout:12000});
+    assert.equal(child.error,undefined,child.stderr);
+    assert.equal(child.signal,'SIGKILL',child.stderr);
+    const raw=new DatabaseSync(tmp.path);
+    try{
+      assert.equal(raw.prepare("SELECT COUNT(*) AS n FROM kernel_events WHERE type='model.started'").get()?.n,1);
+      raw.prepare("UPDATE session_writer_leases SET expires_at_ms=0 WHERE session_id=?").run('session');
+    }finally{raw.close();}
+    const provider=new FakeProvider([[done('would be duplicate')]]);
+    const retried=await new ManagedSessionRunner(tmp.path,provider,new ToolRegistry())
+      .dispatchCommand('session','command-1');
+    assert.equal(retried.dispatch.status,'model_started');
+    assert.equal(retried.dispatch.replayed,true);
+    assert.equal(retried.execution,undefined);
+    assert.equal(provider.requests.length,0);
+  }finally{tmp.close();}
+});
