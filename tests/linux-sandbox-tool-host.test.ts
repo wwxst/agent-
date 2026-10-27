@@ -199,10 +199,19 @@ test('M3 sandbox: real namespace denies parent-only file, code write and host lo
     let output='',errors='';
     child.stdout.on('data',(part:Buffer)=>{output+=part.toString();});
     child.stderr.on('data',(part:Buffer)=>{errors+=part.toString();});
-    const result=await Promise.race([
-      new Promise<number|null>(resolve=>child.once('close',resolve)),
-      new Promise<never>((_,reject)=>setTimeout(()=>{child.kill('SIGKILL');reject(Error('Namespace probe timed out'));},7000)),
-    ]);
+    let timeout:NodeJS.Timeout|undefined;
+    let result:number|null;
+    try{
+      result=await Promise.race([
+        new Promise<number|null>((resolve,reject)=>{
+          child.once('close',resolve);
+          child.once('error',reject);
+        }),
+        new Promise<never>((_,reject)=>{
+          timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Namespace probe timed out'));},7000);
+        }),
+      ]);
+    }finally{if(timeout)clearTimeout(timeout);}
     if(result!==0){
       if(/creating new namespace failed|Operation not permitted|No permissions/.test(errors))
         return t.skip('Kernel denied strict Bubblewrap user namespace');
