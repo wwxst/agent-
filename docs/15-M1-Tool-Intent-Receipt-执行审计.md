@@ -88,8 +88,10 @@ try {
 9. **子进程在持久化 Intent 之后 SIGKILL**，父进程重新读取 SQLite，将未决调用判定为未知并阻止重放。
 10. 即使存在伪造 `turn.failed`，也不能掩盖缺失的 Receipt。
 11. 收据与上下文 Result 内容不一致时拒绝。
+12. 已开始的工具在用户取消时返回明确的 `outcome_unknown` Receipt，不伪造终结状态。
+13. 并行工具中一项先完成就先持久提交自己的 Receipt，无需等待其它调用。
 
-对应 GitHub Actions 运行 Node **22.16.0 和 22.x**，执行 `npm run check` 和 `npm test`，累计 53 项。测试通过情况以 GitHub Actions 记录为准。
+对应 GitHub Actions 运行 Node **22.16.0 和 22.x**，执行 `npm run check` 和 `npm test`，累计 55 项。测试通过情况以 GitHub Actions 记录为准。
 
 ## 5. 与完整执行收据协议的距离
 
