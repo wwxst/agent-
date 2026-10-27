@@ -29,7 +29,10 @@ export function hashContextSource(events: readonly KernelEvent[], throughSeq: nu
 
 /** Only a contiguous prefix of COMPLETED historical turns is compactable. */
 export function safeCompletedPrefix(events: readonly KernelEvent[], fromSeq: number, beforeSeq: number): number | undefined {
-  let active: string | undefined;
+  // A prior checkpoint lives INSIDE its active Turn. Resume the scan
+  // with that Turn open; its turn.queued precedes the checkpoint marker.
+  const preceding=fromSeq>0 ? events[fromSeq-1] : undefined;
+  let active: string | undefined = preceding?.type==='context.checkpoint' ? preceding.turnId : undefined;
   let boundary: number | undefined;
   for(const event of events){
     if(event.seq<=fromSeq || event.seq>=beforeSeq) continue;
