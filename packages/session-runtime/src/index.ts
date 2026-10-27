@@ -4,6 +4,7 @@ import { AgentKernel, type DeltaListener, type KernelOptions, type TurnResult } 
 import { SqliteEventStore } from '../../event-store-sqlite/src/index.js';
 import { SqliteWriterLeaseStore, type WriterLease } from '../../session-leases-sqlite/src/index.js';
 import type { ToolRegistry } from '../../tool-scheduler/src/index.js';
+import { SqliteCommandInbox, type AcceptedCommand } from '../../command-inbox/src/index.js';
 
 export interface ManagedSessionOptions {
   /** Claim lifetime in DB wall-clock milliseconds. Default: 3000. */
@@ -46,7 +47,7 @@ export class ManagedSessionRunner {
     }
   }
 
-  private async withLease<T>(sessionId: SessionId, work: (kernel: AgentKernel) => Promise<T>): Promise<T> {
+  private async withLease<T>(sessionId: SessionId, work: (kernel: AgentKernel, lease: WriterLease) => Promise<T>): Promise<T> {
     if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'Session ID must be nonempty');
     const leases = new SqliteWriterLeaseStore(this.databasePath);
     let journal: SqliteEventStore | undefined;
@@ -96,7 +97,7 @@ export class ManagedSessionRunner {
         }
       }, this.renewEveryMs);
       guard();
-      const result = await work(kernel);
+      const result = await work(kernel, claim!);
       guard(); // Do not claim success after ownership was lost.
       return result;
     } finally {
@@ -121,6 +122,24 @@ export class ManagedSessionRunner {
       return turnId === undefined
         ? kernel.runTurn(sessionId, text)
         : kernel.runTurn(sessionId, text, turnId);
+    });
+  }
+
+  /**
+   * Accept an inert command into the durable control-plane inbox.
+   * No model dispatch, replay or Turn queueing is performed by this ACK API.
+   * If the accepted ACK is lost, resend the same commandId and payload.
+   */
+  acceptCommand(sessionId: SessionId, expectedSeq: number, commandId: string,
+    kind: string, payload: unknown): Promise<AcceptedCommand> {
+    return this.withLease(sessionId, async (kernel, lease) => {
+      await kernel.openSession(sessionId); // Never bypass unresolved Turn/ToolCall.
+      const inbox = new SqliteCommandInbox(this.databasePath);
+      try {
+        return inbox.accept({lease,expectedSeq,commandId,kind,payload});
+      } finally {
+        inbox.close();
+      }
     });
   }
 
