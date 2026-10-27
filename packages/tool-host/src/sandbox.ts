@@ -1,5 +1,5 @@
 import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync} from 'node:fs';
-import {isAbsolute, relative, resolve, dirname} from 'node:path';
+import {isAbsolute, relative, dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 
 /**
@@ -63,6 +63,10 @@ export function buildBubblewrapLaunch(
   const dbDir=realDirectory(dirname(db));
   if(!disjoint(app,dbDir))return fail();
   const runtime=sandbox.runtimeReadOnlyDirectories.map(realDirectory);
+  // Never let a caller accidentally import host control files / devices,
+  // procfs, sockets, user home or the temporary workspace into the worker.
+  const sensitive=['/proc','/sys','/dev','/run','/tmp','/home','/root','/var','/etc'];
+  if(runtime.some(path=>sensitive.some(secret=>!disjoint(path,secret))))return fail();
   if(!runtime.some(path=>within(node,path)))return fail();
   for(let i=0;i<runtime.length;i++){
     if(!disjoint(runtime[i]!,dbDir)||!disjoint(runtime[i]!,app)
@@ -73,6 +77,9 @@ export function buildBubblewrapLaunch(
   // runtime/code and dedicated RW SQLite directory are exposed to the child.
   const argv:string[]=[
     '--die-with-parent','--new-session','--unshare-all',
+    // bwrap's "--unshare-all" may treat user namespaces as best-effort.
+    // The explicit flag removes that fallback; unsupported hosts must fail.
+    '--unshare-user','--cap-drop','ALL',
     '--clearenv','--setenv','AGENT_HOST_STDIO','1',
     '--setenv','HOME','/tmp','--setenv','TMPDIR','/tmp',
     '--proc','/proc','--dev','/dev','--tmpfs','/tmp',
