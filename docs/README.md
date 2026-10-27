@@ -48,6 +48,7 @@
 | ADR | [ADR 0003：远程 ACK 与工具收据](adr/0003-远程控制事件确认与执行收据.md) | 区分传输确认、持久接受、执行开始、执行结束 |
 | ADR | [ADR 0004：工具隔离与中断语义](adr/0004-工具执行隔离与中断语义.md) | 沙箱强制执行、内部字段信任边界、Interrupt/Cancel/Background |
 | ADR | **[ADR 0005：首版自主内核技术基线与取舍](adr/0005-首版自主内核技术基线与取舍.md)** | 推荐 TS Kernel / SQLite WAL / 独立 ToolHost / 保守并发，尚未接受 |
+| ADR | [ADR 0006：Linux Tool Host seccomp 启动约束](adr/0006-M3-ToolHost-seccomp-强制系统调用边界.md) | 受信 BPF FD3、架构检查、kernel filter 就绪验证与明确风险边界 |
 
 ## 设计来源
 
