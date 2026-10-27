@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { readlinkSync } from 'node:fs';
 import { KernelError } from '../../contracts/src/index.js';
 import { HostExecutionLedger, type HostCall } from './ledger.js';
 
@@ -7,8 +8,16 @@ import { HostExecutionLedger, type HostCall } from './ledger.js';
  * model-provided code is executed. The whitelist is revalidated IN the Host.
  * This process is NOT an OS sandbox (it shares the user's OS privileges).
  */
-if (!process.send || !process.argv[2]) {
-  throw new Error('Tool Host worker must be forked with an IPC channel and database path');
+const stdioMode=process.env.AGENT_HOST_STDIO==='1' && !process.send;
+if ((!process.send && !stdioMode) || !process.argv[2]) {
+  throw new Error('Tool Host worker requires a trusted transport and database path');
+}
+function reply(payload:unknown):void{
+  if(stdioMode){
+    process.stdout.write(JSON.stringify(payload)+'\n');
+  }else{
+    process.send?.(payload);
+  }
 }
 // Parent may create lease tables while this process starts: retry only
 // SQLITE_BUSY. IPC messages are buffered until the READY handshake.
@@ -96,7 +105,7 @@ async function execute(call: HostCall): Promise<string> {
   return content;
 }
 
-process.on('message', (raw: unknown) => {
+const receive = (raw:unknown):void => {
   const id = isRecord(raw) && typeof raw.id === 'string' ? raw.id : null;
   void (async () => {
     try {
@@ -106,17 +115,43 @@ process.on('message', (raw: unknown) => {
       }
       const request = parseCall(raw);
       const content = await execute(request.call);
-      process.send?.({ id: request.id, ok: true, content });
+      reply({ id: request.id, ok: true, content });
     } catch (error) {
       const code = error instanceof KernelError ? error.code : 'HOST_EXECUTION_FAILED';
       // Avoid returning SQLite/stack/credentials across IPC.
-      process.send?.({ id, ok: false, code });
+      reply({ id, ok: false, code });
     }
   })();
-});
-process.on('disconnect', () => {
-  // A disconnect during a request leaves a durable STARTED row; never replay it.
+};
+const disconnect=():void=>{
+  // A disconnect during a request leaves a durable STARTED row; never replay.
   readyLedger.close();
   process.exit(0);
-});
-process.send?.({ type: 'ready' });
+};
+if(stdioMode){
+  let frame='';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data',(part:string)=>{
+    frame+=part;
+    // Never accumulate unlimited, potentially attacker-controlled IPC data.
+    if(Buffer.byteLength(frame,'utf8')>65536){process.exit(71);}
+    let i:number;
+    while((i=frame.indexOf('\n'))>=0){
+      const line=frame.slice(0,i);frame=frame.slice(i+1);
+      if(Buffer.byteLength(line,'utf8')>32768){process.exit(71);}
+      try{receive(JSON.parse(line) as unknown);}
+      catch{process.exit(71);}
+    }
+  });
+  process.stdin.on('end',disconnect);
+}else{
+  process.on('message',receive);
+  process.on('disconnect',disconnect);
+}
+const namespaces=stdioMode ? {
+  mount:readlinkSync('/proc/self/ns/mnt'),
+  network:readlinkSync('/proc/self/ns/net'),
+  pid:readlinkSync('/proc/self/ns/pid'),
+  user:readlinkSync('/proc/self/ns/user'),
+}:undefined;
+reply({type:'ready',...(namespaces?{namespaces}:{})});
