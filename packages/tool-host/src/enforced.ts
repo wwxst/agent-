@@ -38,9 +38,10 @@ export function readUnifiedCgroupPath(procText:string):string{
   const groups=rows.filter(row=>row.startsWith('0::'));
   if(groups.length!==1)return unavailable('Missing or ambiguous unified cgroup membership');
   const path=groups[0]!.slice(3);
-  if(!path.startsWith('/')||path.includes('\0')||path.split('/').includes('..')
-    ||path.includes('\n')||path.includes('\r'))
-    return unavailable('Invalid cgroup membership path');
+  const segments=path.slice(1).split('/');
+  if(!path.startsWith('/')||path.includes('\\0')||path.includes('\\n')
+    ||path.includes('\\r')||(path!=='/'&&segments.some(part=>!part||part==='.'||part==='..')))
+    return unavailable('Non-canonical cgroup membership path');
   return path;
 }
 function bound(content:string):number{
