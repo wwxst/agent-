@@ -102,10 +102,14 @@ export function verifyJournal(events:readonly KernelEvent[],sessionId:string):vo
  */
 export class SqliteCommandInbox {
   private readonly db: DatabaseSync;
-  constructor(path:string) {
+  constructor(path:string, options:Readonly<{readOnly?:boolean}>={}) {
     if(!validText(path,4096)) throw new KernelError('INVALID_STORE_PATH','SQLite path required');
-    this.db=new DatabaseSync(path,{timeout:5000});
+    this.db=new DatabaseSync(path,{timeout:5000,...(options.readOnly?{readOnly:true}:{})});
     try{
+      if(options.readOnly){
+        this.db.exec('PRAGMA query_only=ON');
+        return;
+      }
       this.db.exec('PRAGMA journal_mode=WAL');
       this.db.exec('PRAGMA synchronous=FULL');
       this.db.exec(`
