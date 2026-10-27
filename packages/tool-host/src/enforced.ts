@@ -39,8 +39,12 @@ export function readUnifiedCgroupPath(procText:string):string{
   if(groups.length!==1)return unavailable('Missing or ambiguous unified cgroup membership');
   const path=groups[0]!.slice(3);
   const segments=path.slice(1).split('/');
-  if(!path.startsWith('/')||path.includes('\${c}')||path.includes('\${c}')
-    ||path.includes('\${c}')||(path!=='/'&&segments.some(part=>!part||part==='.'||part==='..')))
+  const invalidControl=[...path].some(ch=>{
+    const code=ch.charCodeAt(0);
+    return code===0 || code===10 || code===13;
+  });
+  if(!path.startsWith('/')||invalidControl
+    ||(path!=='/'&&segments.some(part=>!part||part==='.'||part==='..')))
     return unavailable('Non-canonical cgroup membership path');
   return path;
 }
