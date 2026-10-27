@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readlinkSync,readFileSync,realpathSync,statfsSync,writeFileSync } from 'node:fs';
+import { readFileSync,realpathSync,statfsSync,writeFileSync } from 'node:fs';
 import { resolve,relative,isAbsolute } from 'node:path';
 import { readUnifiedCgroupPath,assertDedicatedCgroupReady } from './enforced.js';
+import { attestSandboxWorker,assertWorkerIdentity,type KernelHostIdentity } from './host-attestation.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
@@ -35,6 +36,10 @@ export class ProcessToolHost {
   private readonly pending = new Map<string, Pending>();
   private ended = false;
   private readonly sandboxed:boolean;
+  private workerIdentity?:KernelHostIdentity;
+  private readonly expectedWorkerPath:string;
+  private readonly expectedNodePath:string;
+  private readonly expectedDatabasePath:string;
   private readonly dedicatedCgroupLeaf?:string;
   private cleanupError?:KernelError;
   private readonly ready: Promise<void>;
@@ -46,6 +51,9 @@ export class ProcessToolHost {
   constructor(databasePath: string, private readonly timeoutMs = 4000,
     sandbox?: LinuxBubblewrapSandbox) {
     this.sandboxed=sandbox!==undefined;
+    this.expectedWorkerPath=fileURLToPath(new URL('./worker.js',import.meta.url));
+    this.expectedNodePath=process.execPath;
+    this.expectedDatabasePath=databasePath;
     if(sandbox?.dedicatedCgroup){
       const leaf=readUnifiedCgroupPath('0::'+sandbox.dedicatedCgroup.relativePath);
       const parent=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
@@ -107,21 +115,17 @@ export class ProcessToolHost {
     const onMessage=(raw:unknown):void => {
       if (raw && typeof raw === 'object' && (raw as {type?: unknown}).type === 'ready') {
         if(this.sandboxed){
-          const entry=(raw as {namespaces?:unknown}).namespaces;
-          if(!entry || typeof entry!=='object' || Array.isArray(entry)){
+          try{
+            this.workerIdentity=attestSandboxWorker({
+              launcherPid:this.child.pid??-1,
+              workerPath:this.expectedWorkerPath,
+              nodePath:this.expectedNodePath,
+              databasePath:this.expectedDatabasePath,
+              claimedNamespaces:(raw as {namespaces?:unknown}).namespaces,
+            });
+          }catch{
             this.close();return;
           }
-          const namespaces=entry as Record<string,unknown>;
-          try{
-            for(const [key,linuxName] of Object.entries({
-              mount:'mnt',network:'net',pid:'pid',user:'user',
-            })){
-              const remote=namespaces[key],local=readlinkSync('/proc/self/ns/'+linuxName);
-              if(typeof remote!=='string'||!/^\w+:\[\d+\]$/.test(remote)||remote===local){
-                this.close();return;
-              }
-            }
-          }catch{this.close();return;}
         }
         if (!this.readySettled) {
           this.readySettled = true;
@@ -211,6 +215,15 @@ export class ProcessToolHost {
     await this.ready;
     if (this.ended || (this.sandboxed?!this.child.stdin?.writable:!this.child.connected)) {
       throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host process unavailable');
+    }
+    if(this.sandboxed){
+      try{
+        if(!this.workerIdentity)throw Error('Worker attestation unavailable');
+        assertWorkerIdentity(this.workerIdentity);
+      }catch{
+        this.close();
+        throw new KernelError('HOST_IDENTITY_UNVERIFIED','Worker kernel identity changed');
+      }
     }
     if (signal.aborted) throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Call already cancelled');
     const id = randomUUID();
