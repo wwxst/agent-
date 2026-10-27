@@ -5,7 +5,7 @@ import {join,dirname} from 'node:path';
 import {test} from 'node:test';
 import {SqliteEventStore} from '../packages/event-store-sqlite/src/index.js';
 import {inspectCgroupV2From,inspectCurrentCgroupV2,readUnifiedCgroupPath,
-  startEnforcedToolHost} from '../packages/tool-host/src/enforced.js';
+  startEnforcedToolHost,assertInheritedCgroupBudget} from '../packages/tool-host/src/enforced.js';
 
 const memory=256*1024*1024;
 function fixture(){
@@ -151,4 +151,32 @@ test('M3 enforced: existing bounded cgroup does not authorize an invalid sandbox
       },
     }),{code:'HOST_SANDBOX_UNAVAILABLE'});
   }finally{f.done();}
+});
+
+test('M3 enforced: finite OS quotas must ALL satisfy trusted maximum; no partial allowance',()=>{
+  const limits={relativePath:'/service',memoryBytes:128*1024*1024,
+    pids:32,cpuMillicores:700};
+  const allowed={maxMemoryBytes:128*1024*1024,maxPids:32,maxCpuMillicores:700};
+  assert.doesNotThrow(()=>assertInheritedCgroupBudget(limits,allowed));
+  for(const requiredBudget of [
+    {...allowed,maxMemoryBytes:64*1024*1024},
+    {...allowed,maxPids:16},
+    {...allowed,maxCpuMillicores:500},
+  ])assert.throws(()=>assertInheritedCgroupBudget(limits,requiredBudget),{
+    code:'HOST_CGROUP_BUDGET_UNSATISFIED',
+  });
+  assert.throws(()=>assertInheritedCgroupBudget({...limits,cpuMillicores:Infinity},allowed),{
+    code:'HOST_CGROUP_BUDGET_UNSATISFIED',
+  });
+});
+test('M3 enforced: a shared parent quota is not proof of per-worker resource isolation',()=>{
+  const fixtureLimits={relativePath:'/shared-parent',memoryBytes:512*1024*1024,
+    pids:48,cpuMillicores:900};
+  assert.doesNotThrow(()=>assertInheritedCgroupBudget(fixtureLimits,{
+    maxMemoryBytes:512*1024*1024,maxPids:48,maxCpuMillicores:900,
+  }));
+  // A stricter per-worker requirement CANNOT be met by a looser shared quota.
+  assert.throws(()=>assertInheritedCgroupBudget(fixtureLimits,{
+    maxMemoryBytes:128*1024*1024,maxPids:8,maxCpuMillicores:200,
+  }),{code:'HOST_CGROUP_BUDGET_UNSATISFIED'});
 });
