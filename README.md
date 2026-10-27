@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 持久化/租约/只读 Host/双账本对账增量已实现（非生产就绪）** · **最后更新：2026-10-27**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 只读 Host/双账本对账/人工复核审计增量已实现（非生产就绪）** · **最后更新：2026-10-27**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner、持久 Intent/Receipt，并新增真正独立 Node 子进程的只读 Tool Host 与 Host 自身的执行账本。** OS 沙箱、未决 Turn 自动修复/重放协议、生产鉴权和外部副作用幂等仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)及[子进程 Tool Host](docs/16-M1-子进程ToolHost-与执行账本.md)及[双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)。
+**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner、持久 Intent/Receipt，并新增真正独立 Node 子进程的只读 Tool Host 与 Host 自身的执行账本。** OS 沙箱、未决 Turn 自动修复/重放协议、审核者生产鉴权和外部副作用幂等仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)及[子进程 Tool Host](docs/16-M1-子进程ToolHost-与执行账本.md)及[双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)及[证据绑定人工复核](docs/18-M1-证据绑定人工审核记录.md)。
 
 ## 一、项目目标
 
@@ -49,6 +49,7 @@
 19. [M1 Tool Intent/Receipt 执行审计](docs/15-M1-Tool-Intent-Receipt-执行审计.md)：执行前意图、每项结果持久收据、结果未知时拒绝自动重放。
 20. [M1 子进程 Tool Host 与执行账本](docs/16-M1-子进程ToolHost-与执行账本.md)：子进程白名单、Host 端租约及 Intent 复核、重复执行防护。
 21. [M1 双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)：Kernel 事件/Host 台账一致快照，保守审计，禁止自动重放。
+22. [M1 证据绑定人工复核记录](docs/18-M1-证据绑定人工审核记录.md)：审计 Hash 与审核记录在事务内绑定，缺少生产鉴权且不自动恢复。
 
 附加约束：
 
@@ -74,11 +75,12 @@
 - **M1 托管 Session（已合并 main）**：新增 `packages/session-runtime`，按操作自动获取/续租/释放 Writer Lease，所有 append 绑定 Token，Kernel/工具执行前检查租约，租约丢失时协作中断且不伪造终态；新增 6 项测试。
 - **M1 Tool Intent/Receipt 执行审计（已合并 main）**：新增 `packages/tool-audit`、事件合同、Kernel 执行前 Intent 和按 ToolCall 单独持久 Receipt；面对收据丢失、进程崩溃或 outcome_unknown 坚持人工对账而非自动重试；新增 13 项测试。
 - **M1 子进程 Tool Host（已实现增量）**：新增 `packages/tool-host`（IPC Client、Worker、SQLite 执行账本），子进程自己复核有效租约和持久 Intent，在调用前提交 STARTED、结束时再验证 Fencing Token；仅支持 `read.echo/read.sleep` 两个演示工具，新增 10 项测试。
-- **M1 双账本只读对账（本轮分支）**：新增 `packages/tool-reconciliation`；只读事务同时快照 Kernel 与 Host，区分已验证、缺失收据、未开始证据、STARTED、冲突、孤儿 Host 等情况；强制 Receipt/Result 相邻，新增 12 项测试。
-- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，累计 77 项测试；以具体 workflow run 为准。
+- **M1 双账本只读对账（已合并 main）**：新增 `packages/tool-reconciliation`；只读事务同时快照 Kernel 与 Host，区分已验证、缺失收据、未开始证据、STARTED、冲突、孤儿 Host 等情况；强制 Receipt/Result 相邻，新增 12 项测试。
+- **M1 证据绑定人工复核（本轮分支）**：新增 `packages/recovery-review`，单事务检查全量双账本证据 Hash，插入不可变审核记录；不授予重试/恢复许可。修复 Tool Host 冷启动 Schema 初始化竞争，新增 11 项测试（含 10 轮冷启动测试）。
+- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，累计目标 88 项测试；以具体 workflow run 为准。
 - **仍未具备**：真实模型、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现双账本只读证据对账，但没有自动修复；下一阶段实现受控恢复/审批、Host 鉴权和 OS 强制沙箱，再考虑具有副作用的工具与真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。下一步建立经过认证的审核/审批服务端、可验证 Host 身份与 OS 强制隔离，再设计安全恢复流程和真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
