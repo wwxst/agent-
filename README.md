@@ -58,6 +58,7 @@
 28. [M2 本地认证控制面与 Session 权限](docs/24-M2-本地认证控制面与Session权限.md)：127.0.0.1 强 Bearer、Session 白名单、读写独立权限与隐私响应；非生产网关。
 29. [M2 持久身份权威、轮换撤销与审计](docs/25-M2-持久凭据轮换撤销与授权审计.md)：SQLite 主体信任根、实时权限决策、CAS 轮换/撤销与失效后的持续拒绝。
 30. [M2 执行期间授权撤销与协作中断](docs/26-M2-执行期间授权撤销与协作中断.md)：受信持久 Grant、周期重检、模型/工具边界授权栅栏和未决 Turn 保守恢复。
+31. [M3 Linux Tool Host Bubblewrap 隔离](docs/27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md)：显式启用的 Linux user/mount/PID/network namespaces、只读代码与专用 SQLite 写目录、真实隔离探针；不支持即拒绝。
 
 附加约束：
 
@@ -92,11 +93,12 @@
 - **M2 Command Dispatcher（已合并 main）**：新增唯一 Command→Turn 映射、Fenced SQLite 原子入场、绑定用户文本指纹和崩溃后只读状态；首次执行保留既有 Host Intent/Receipt，重复交付从不重放，新增 14 项测试。
 - **M2 本地认证控制面（已合并 main）**：新增 `packages/control-plane`，显式配置随机 Bearer 凭据、Session 作用域与接受/分发/查看权限；只监听 127.0.0.1，响应不返回 Prompt、密钥或模型内容。新增 13 项真实 HTTP/故障测试。非生产级远端鉴权。
 - **M2 持久身份权威（已合并 main）**：新增 `SqliteControlAuthority`，可信本地 Bootstrap、CAS 凭据轮换/永久撤销、历史 Token 不可复用；每次授权含允许/拒绝都在事务内持久记录，审计失败拒绝放行；原临时密钥模式可继续兼容。新增 13 项故障及 HTTP 测试。
-- **M2 执行期间授权撤销（本轮分支）**：HTTP 持久身份凭据版本绑定执行 Guard，Writer Lease 心跳重检授权，模型/工具继续执行前拒绝旧版本；失效后保持未决 Turn 且不盲目重放。新增 6 项集成/故障测试。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 204 项；以当前提交 CI 为准。
-- **仍未具备**：真实计费 API 端到端联调、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M2 执行期间授权撤销（已合并 main）**：HTTP 持久身份凭据版本绑定执行 Guard，Writer Lease 心跳重检授权，模型/工具继续执行前拒绝旧版本；失效后保持未决 Turn 且不盲目重放。新增 6 项集成/故障测试。
+- **M3 Linux Bubblewrap Host（本轮分支）**：新增可选的 OS namespace 隔离 Worker、只读 runtime/code 与专用 SQLite RW 挂载、独立有界 JSON-line IPC、启动时 namespace 身份校验和绝不降级回退；新增 8 项含真实 Linux Worker 和私有文件/网络隔离验证的测试。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 212 项；真实隔离是否执行以 GitHub Actions 跳过计数为准。
+- **仍未具备**：生产级完整 OS 安全策略（资源预算/seccomp/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。控制面已具备可选择启用的持久 Principal 凭据、轮换/撤销和授权决策审计，但不提供公开管理接口，也不能终止已授权并在途的执行。持久模式现已将 HTTP 分发的凭据版本绑定到执行边界与心跳重新校验；但无法强制停止忽略取消的外部工具，也不能撤销已发生副作用。下一步优先完成 OS 级 Tool Host 强制隔离，再建设认证高风险工具审批和可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。控制面已具备可选择启用的持久 Principal 凭据、轮换/撤销和授权决策审计，但不提供公开管理接口，也不能终止已授权并在途的执行。持久模式现已将 HTTP 分发的凭据版本绑定到执行边界与心跳重新校验；但无法强制停止忽略取消的外部工具，也不能撤销已发生副作用。本轮已提供显式可选的 Linux Bubblewrap 命名空间隔离，不表示其他工具调用或默认 Host 自动受限。下一步推进安全部署默认策略、资源预算与可信 Host 身份，再建设认证高风险工具审批和可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
