@@ -138,7 +138,8 @@ test('M3 dedicated: without delegated child cgroup, real entry fails before mode
   try{
     await assert.rejects(startDedicatedToolHost({
       databasePath:f.path,requiredBudget:budget,
-      sandbox:{binaryPath:'/usr/bin/bwrap',runtimeReadOnlyDirectories:['/usr']},
+      sandbox:{binaryPath:'/usr/bin/bwrap',runtimeReadOnlyDirectories:['/usr'],
+        seccompPolicy:'network-and-privilege-deny-v1'},
       dedicatedCgroupRelativePath:'/definitely-nonexistent-kernel-owned-leaf',
     }),/cgroup|worker/i);
   }finally{f.done();}
