@@ -93,11 +93,12 @@ test('M2 control: missing, wrong, malformed and case-changed bearer credentials 
       assert.equal(route.status,401,JSON.stringify(route));
       assert.deepEqual(route.body,{error:'UNAUTHENTICATED'});
     }
-    for(const header of ['bearer '+f.secret,'Bearer '+f.secret+' ']){
-      const route=await json(f.server.origin,'POST',base,undefined,acceptBody(),{Authorization:header});
-      assert.equal(route.status,401,JSON.stringify(route));
-      assert.deepEqual(route.body,{error:'UNAUTHENTICATED'});
-    }
+    // Fetch normalizes whitespace in header values. Test that its actual
+    // transmitted lowercase scheme is rejected; raw headers are tested below.
+    const lower=await json(f.server.origin,'POST',base,undefined,acceptBody(),
+      {Authorization:'bearer '+f.secret});
+    assert.equal(lower.status,401,JSON.stringify(lower));
+    assert.deepEqual(lower.body,{error:'UNAUTHENTICATED'});
     const journal=new SqliteEventStore(f.db.path);
     try{assert.equal((await journal.read('sessA')).length,1);}finally{journal.close();}
     assert.equal(f.model.requests.length,0);
