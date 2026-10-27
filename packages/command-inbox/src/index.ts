@@ -146,7 +146,7 @@ export class SqliteCommandInbox {
         const ack=this.db.prepare(`
           SELECT type,turn_id,data_json FROM kernel_events
           WHERE session_id=? AND seq=?
-        `).get(lease.sessionId,prior.accepted_seq);
+        `).get(lease.sessionId,prior.accepted_seq as number);
         if(!ack || ack.type!=='command.accepted' || ack.turn_id!==null)
           throw new KernelError('CORRUPT_EVENT_LOG','Accepted command missing journal ACK');
         const data=JSON.parse(ack.data_json as string) as Record<string,unknown>;
