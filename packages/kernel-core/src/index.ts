@@ -93,6 +93,11 @@ export class AgentKernel {
           if (e.turnId !== undefined) throw new KernelError('CORRUPT_EVENT_LOG', 'session.created must not carry turnId');
           continue;
         }
+        // Control-plane ACK is session-scoped and never a ToolCall or Turn.
+        if (e.type === 'command.accepted') {
+          if (e.turnId !== undefined) throw new KernelError('CORRUPT_EVENT_LOG', 'Command ACK must not have turnId');
+          continue;
+        }
         if (!e.turnId) throw new KernelError('CORRUPT_EVENT_LOG', 'Turn event missing turnId');
         if (e.type === 'turn.queued') {
           if (pending || seen.has(e.turnId)) throw new KernelError('CORRUPT_EVENT_LOG', 'Overlapping or repeated turn');

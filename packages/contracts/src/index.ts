@@ -73,7 +73,7 @@ export type TurnState = 'queued' | 'running_model' | 'running_tools' | 'cancelli
 export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.intent' | 'tool.receipt' | 'tool.result'
-  | 'turn.completed' | 'turn.failed' | 'turn.cancelled' | 'model.usage';
+  | 'turn.completed' | 'turn.failed' | 'turn.cancelled' | 'model.usage' | 'command.accepted';
 
 export interface EventDraft {
   readonly type: KernelEventType;

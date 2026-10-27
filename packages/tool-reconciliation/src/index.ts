@@ -77,6 +77,10 @@ function journalState(events: readonly KernelEvent[], sessionId: string): string
       if (event.turnId !== undefined) return failLog('Creation event must not have turnId');
       continue;
     }
+    if (event.type === 'command.accepted') {
+      if (event.turnId !== undefined) return failLog('Command ACK must be session-scoped');
+      continue;
+    }
     if (!event.turnId) return failLog('Turn event missing turnId');
     if (event.type === 'turn.queued') {
       if (pending || seenTurns.has(event.turnId)) return failLog('Overlapping or duplicate turn');
