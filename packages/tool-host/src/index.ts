@@ -3,7 +3,7 @@ import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readlinkSync,readFileSync,realpathSync,statfsSync,writeFileSync } from 'node:fs';
 import { resolve,relative,isAbsolute } from 'node:path';
-import { readUnifiedCgroupPath } from './enforced.js';
+import { readUnifiedCgroupPath,assertDedicatedCgroupReady } from './enforced.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
@@ -51,6 +51,7 @@ export class ProcessToolHost {
       const parent=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
       if(parent==='/' ? leaf==='/' : !leaf.startsWith(parent+'/'))
         throw new KernelError('HOST_CGROUP_UNAVAILABLE','Dedicated Host must have a strict descendant cgroup');
+      assertDedicatedCgroupReady(parent,leaf,sandbox.dedicatedCgroup.budget);
       this.dedicatedCgroupLeaf=leaf;
     }
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
