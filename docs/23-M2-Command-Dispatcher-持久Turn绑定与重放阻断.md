@@ -60,9 +60,9 @@ const repeated = await runner.dispatchCommand('s', 'user-command-unique-id');
 
 ## 四、测试
 
-`tests/command-dispatcher.test.ts` 新增 **12 项**，涵盖：首次绑定并完成 Turn、失联后跨 Runner 查询、非 `turn.run` 拒绝、不合法 Payload、原子回滚、绑定后 SIGKILL、持久 `model.started` 重放屏障、旧 Writer Token 被接管、前一个 Turn 未完成阻断新分发、故意篡改绑定文本（Kernel/只读对账/Dispatcher 全拒绝）、真实独立 Host 的单份 Intent/Receipt、模型失败后重复投递不运行第二次。
+`tests/command-dispatcher.test.ts` 新增 **14 项**，涵盖：首次绑定并完成 Turn、失联后跨 Runner 查询、非 `turn.run` 拒绝、不合法 Payload、原子回滚、绑定后 SIGKILL、持久 `model.started` 重放屏障、旧 Writer Token 被接管、前一个 Turn 未完成阻断新分发、故意篡改绑定文本（Kernel/只读对账/Dispatcher 全拒绝）、真实独立 Host 的单份 Intent/Receipt、模型失败后重复投递不运行第二次、并发重复交付被 Writer Lease 阻断、真实模型步骤启动后遭 SIGKILL 不自动重开。
 
-历史累计 158 项，本轮 12 项，目标 **170 项**。Node 22 / Node 22.16.0 严格类型检查及测试以最新 PR CI 为准。
+历史累计 158 项，本轮 14 项，目标 **172 项**。Node 22 / Node 22.16.0 严格类型检查及测试以最新 PR CI 为准。
 
 ## 五、下一步
 
