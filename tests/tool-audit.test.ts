@@ -276,3 +276,73 @@ test('M1 tool audit: receipt content mismatch invalidates log', () => {
   ];
   assert.throws(()=>inspectToolAudit(events),{code:'CORRUPT_EVENT_LOG'});
 });
+
+
+test('M1 tool audit: cancellation during started tool persists explicit unknown receipt, not false cancellation', async () => {
+  const store = new MemoryEventStore();
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const tools = new ToolRegistry();
+  tools.register({
+    name: 'read', version: '1', risk: 'read', concurrency: 'parallel', parse: input => input,
+    execute: async (_input, signal) => {
+      entered();
+      return new Promise<string>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted after start')), { once: true });
+      });
+    },
+  });
+  const kernel = new AgentKernel(store, new FakeProvider([[toolMessage()]]), tools);
+  await kernel.createSession('cancel-unknown');
+  const run = kernel.runTurn('cancel-unknown','run','turn');
+  await started;
+  assert.equal(await kernel.cancelTurn('cancel-unknown','turn'),true);
+  await assert.rejects(run,{code:'TOOL_OUTCOME_UNKNOWN'});
+  const events = await store.read('cancel-unknown');
+  assert.equal(events.filter(e=>e.type==='turn.cancelled').length,0);
+  assert.equal(events.filter(e=>e.type==='tool.receipt').length,1);
+  assert.equal(inspectToolAudit(events)[0]?.outcome,'outcome_unknown');
+  assert.equal(inspectToolAudit(events)[0]?.needsReconciliation,true);
+  await assert.rejects(new AgentKernel(store,new FakeProvider([]),tools).openSession('cancel-unknown'),
+    {code:'RECOVERY_REQUIRED'});
+});
+
+test('M1 tool audit: parallel result is committed while another read is still in flight', async () => {
+  const base = new MemoryEventStore();
+  let quickPersisted!: () => void;
+  const quickReceipt = new Promise<void>(resolve => { quickPersisted=resolve; });
+  let releaseSlow!: () => void;
+  const slowGate = new Promise<void>(resolve => { releaseSlow=resolve; });
+  const journal: EventStore = {
+    read: (id, after) => base.read(id,after),
+    append: async (id,seq,ds) => {
+      const outcome=await base.append(id,seq,ds);
+      if(ds.some(x=>x.type==='tool.receipt' && (x.data as {callId:string}).callId==='quick')) {
+        quickPersisted();
+      }
+      return outcome;
+    },
+  };
+  const tools = new ToolRegistry();
+  tools.register({name:'quick',version:'1',risk:'read',concurrency:'parallel',
+    parse:x=>x,execute:async()=> 'fast'});
+  tools.register({name:'slow',version:'1',risk:'read',concurrency:'parallel',
+    parse:x=>x,execute:async()=> {await slowGate;return 'slow';}});
+  const provider = new FakeProvider([[
+    {type:'message_complete',message:{role:'assistant',text:'parallel',toolCalls:[
+      {id:'quick',name:'quick',arguments:{}},{id:'slow',name:'slow',arguments:{}},
+    ]},finishReason:'tool_use'},
+  ],[done()]]);
+  const kernel = new AgentKernel(journal,provider,tools);
+  await kernel.createSession('parallel-receipts');
+  const pending = kernel.runTurn('parallel-receipts','go','t');
+  try {
+    await quickReceipt;
+    const events = await base.read('parallel-receipts');
+    assert.deepEqual(events.filter(e=>e.type==='tool.receipt')
+      .map(e=>(e.data as {callId:string}).callId),['quick']);
+  } finally { releaseSlow(); }
+  assert.equal((await pending).status,'completed');
+  assert.deepEqual(inspectToolAudit(await base.read('parallel-receipts'))
+    .map(x=>x.needsReconciliation),[false,false]);
+});
