@@ -110,9 +110,12 @@ test('M2 Inbox: invalid JSON input never invokes getters, persists no ACK',async
   let getter=0;
   try{
     const obj=Object.defineProperty({},'x',{enumerable:true,get(){getter++;return 'secret';}});
-    for(const payload of [obj,undefined,NaN,Infinity,new Map(),new Array(3),(()=>{const x:any={};x.self=x;return x;})()]){
+    for(const payload of [obj,NaN,Infinity,new Map(),new Array(3),(()=>{const x:any={};x.self=x;return x;})()]){
       assert.throws(()=>accept(inbox,ctx.lease,'bad','control.note',payload),{code:'INVALID_COMMAND_PAYLOAD'});
     }
+    assert.throws(()=>inbox.accept({lease:ctx.lease,expectedSeq:1,
+      commandId:'bad-undefined',kind:'control.note',payload:undefined}),
+      {code:'INVALID_COMMAND_PAYLOAD'});
     assert.equal(getter,0);
     assert.throws(()=>accept(inbox,ctx.lease,'big','control.note',{value:'x'.repeat(70_000)}),
       {code:'COMMAND_TOO_LARGE'});
