@@ -34,7 +34,7 @@ function ns(pid:number):NamespaceEvidence{
     let value:string;
     try{value=readlinkSync(path(pid,'ns/'+linux));}
     catch{return reject();}
-    if(!/^\\w+:\\[\\d+\\]$/.test(value))return reject();
+    if(!/^\w+:\[\d+\]$/.test(value))return reject();
     result[name]=value;
   }
   return result;
