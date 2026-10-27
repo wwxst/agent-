@@ -4,6 +4,7 @@ import type { ManagedSessionRunner } from '../../session-runtime/src/index.js';
 import { SqliteCommandDispatcher } from '../../command-dispatcher/src/index.js';
 import { SqliteCommandInbox } from '../../command-inbox/src/index.js';
 import { ControlKeyring, type ControlAuthorizer, type ControlPrincipalConfig, type ControlPermission } from './auth.js';
+import { SqliteControlAuthority, type RuntimeAuthorizationGrant } from './authority.js';
 
 const MAX_BODY = 70*1024;
 const ROUTE=/^\/v1\/sessions\/([A-Za-z0-9_-]{1,128})\/commands(?:\/([A-Za-z0-9_-]{1,128})(\/dispatch)?)?$/;
@@ -42,7 +43,8 @@ function fail(res:ServerResponse,error:unknown):void{
     if(code==='UNAUTHENTICATED')return send(res,401,{error:'UNAUTHENTICATED'});
     if(code==='FORBIDDEN')return send(res,403,{error:'FORBIDDEN'});
     if(code==='UNKNOWN_COMMAND')return send(res,404,{error:'UNKNOWN_COMMAND'});
-    if(code==='SESSION_BUSY'||code==='RECOVERY_REQUIRED'||code==='LEASE_LOST')
+    if(code==='SESSION_BUSY'||code==='RECOVERY_REQUIRED'||code==='LEASE_LOST'
+      ||code==='AUTHORIZATION_REVOKED')
       return send(res,409,{error:code});
     if(code==='INVALID_HTTP_BODY'||code==='INVALID_DISPATCH_PAYLOAD'||code==='INVALID_COMMAND'
       ||code==='INVALID_COMMAND_PAYLOAD'||code==='COMMAND_TOO_LARGE'||code==='UNSUPPORTED_COMMAND')
@@ -130,7 +132,12 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
         auth.authorize(null,sessionId,permission);
         throw new KernelError('UNAUTHENTICATED','Exactly one credential required');
       }
-      auth.authorize(req.headers.authorization,sessionId,permission);
+      // Durable mode captures a *version-bound* admission proof in the SAME
+      // transaction as the credential decision, never from request JSON.
+      let grant:RuntimeAuthorizationGrant|undefined;
+      if(auth instanceof SqliteControlAuthority && permission==='command.dispatch')
+        grant=auth.authorizeGrant(req.headers.authorization,sessionId,permission);
+      else auth.authorize(req.headers.authorization,sessionId,permission);
 
       if(req.method==='GET'){
         if(req.headers['content-length'] || req.headers['transfer-encoding'])
@@ -153,7 +160,10 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
         // POST dispatch deliberately has no body and returns status only.
         if(req.headers['content-length'] && req.headers['content-length']!=='0'
           ||req.headers['transfer-encoding'])throw new KernelError('INVALID_HTTP_BODY','Dispatch accepts no body');
-        const result=await options.runner.dispatchCommand(sessionId,commandId);
+        const dispatchGrant=grant;
+        const result=await options.runner.dispatchCommand(sessionId,commandId,
+          dispatchGrant&&auth instanceof SqliteControlAuthority
+            ? ()=>auth.assertGrant(dispatchGrant) : undefined);
         return send(res,200,{dispatch:safeDispatch(result.dispatch)});
       }
       const data=commandRequest(await body(req));
