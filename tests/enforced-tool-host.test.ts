@@ -64,7 +64,8 @@ test('M3 cgroup: unlimited inherited controller is not accepted as a finite reso
 });
 test('M3 cgroup: malformed membership and duplicate unified mount records fail closed',()=>{
   for(const raw of ['','2:cpu:/service','0::relative','0::/../../etc',
-    '0::/service\n0::/other','0::/service\n0::/service','0::/service\u0000bad']){
+    '0::/service\n0::/other','0::/service\n0::/service','0::/service\u0000bad',
+    '0::/service//kernel','0::/./service','0::/service/.']){
     assert.throws(()=>readUnifiedCgroupPath(raw),{code:'HOST_CGROUP_UNAVAILABLE'},raw);
   }
   assert.equal(readUnifiedCgroupPath('0::/'),'/' );
