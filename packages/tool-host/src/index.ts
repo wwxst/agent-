@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync,realpathSync,statfsSync,writeFileSync,closeSync } from 'node:fs';
 import { resolve,relative,isAbsolute } from 'node:path';
 import { readUnifiedCgroupPath,assertDedicatedCgroupReady } from './enforced.js';
-import { attestSandboxWorker,assertWorkerIdentity,type KernelHostIdentity } from './host-attestation.js';
+import { attestSandboxWorker,assertWorkerIdentity,assertWorkerSeccompInstalled,type KernelHostIdentity } from './host-attestation.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import {openHostSeccompFilter} from './seccomp.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
@@ -133,6 +133,8 @@ export class ProcessToolHost {
               databasePath:this.expectedDatabasePath,
               claimedNamespaces:(raw as {namespaces?:unknown}).namespaces,
             });
+            if(sandbox?.seccompPolicy)
+              assertWorkerSeccompInstalled(this.workerIdentity.pid);
           }catch{
             this.close();return;
           }
@@ -232,6 +234,8 @@ export class ProcessToolHost {
       try{
         if(!this.workerIdentity)throw Error('Worker attestation unavailable');
         assertWorkerIdentity(this.workerIdentity);
+        if(sandbox?.seccompPolicy)
+          assertWorkerSeccompInstalled(this.workerIdentity.pid);
       }catch{
         this.close();
         throw new KernelError('HOST_IDENTITY_UNVERIFIED','Worker kernel identity changed');
