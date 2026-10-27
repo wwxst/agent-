@@ -135,6 +135,14 @@ export class ProcessToolHost {
     }
     this.child.on('error', () => this.failAll());
     this.child.on('exit', () => this.failAll());
+    // Namespace setup and worker ledger initialization may hang before READY.
+    // Do not leave the first ToolCall waiting indefinitely for an untrusted
+    // process to finish bootstrapping.
+    if(sandbox){
+      const deadline=sandbox.startupTimeoutMs??Math.max(3000,Math.min(timeoutMs,10_000));
+      const startupTimer=setTimeout(()=>this.close(),deadline);
+      this.ready.then(()=>clearTimeout(startupTimer),()=>clearTimeout(startupTimer));
+    }
   }
 
   get pid(): number | undefined { return this.child.pid; }
