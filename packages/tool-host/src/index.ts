@@ -26,12 +26,22 @@ export class ProcessToolHost {
   private readonly child: ChildProcess;
   private readonly pending = new Map<string, Pending>();
   private ended = false;
+  private readonly ready: Promise<void>;
+  private signalReady!: () => void;
+  private rejectReady!: (error: Error) => void;
+  private readySettled = false;
 
   /** A terminated worker leaves STARTED calls requiring reconciliation. */
   constructor(databasePath: string, private readonly timeoutMs = 4000) {
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
       throw new KernelError('HOST_INVALID_OPTIONS', 'Invalid Host database path or timeout');
     }
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.signalReady = resolve;
+      this.rejectReady = reject;
+    });
+    // A worker can fail during startup even if nobody ever invokes it.
+    void this.ready.catch(() => undefined);
     const worker = new URL('./worker.js', import.meta.url);
     this.child = fork(worker, [databasePath], {
       execArgv: [],
@@ -40,6 +50,13 @@ export class ProcessToolHost {
       serialization: 'json',
     });
     this.child.on('message', (raw: unknown) => {
+      if (raw && typeof raw === 'object' && (raw as {type?: unknown}).type === 'ready') {
+        if (!this.readySettled) {
+          this.readySettled = true;
+          this.signalReady();
+        }
+        return;
+      }
       if (!isReply(raw)) return;
       const request = this.pending.get(raw.id);
       if (!request) return;
@@ -59,6 +76,10 @@ export class ProcessToolHost {
   private failAll(): void {
     if (this.ended) return;
     this.ended = true;
+    if (!this.readySettled) {
+      this.readySettled = true;
+      this.rejectReady(new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host failed before becoming ready'));
+    }
     for (const request of this.pending.values()) {
       request.cleanup();
       request.reject(new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host process exited before reply'));
@@ -67,6 +88,7 @@ export class ProcessToolHost {
   }
 
   async invoke(call: HostCall, signal: AbortSignal): Promise<string> {
+    await this.ready;
     if (this.ended || !this.child.connected) {
       throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host process unavailable');
     }
