@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
-import {spawnSync} from 'node:child_process';
+import {createServer} from 'node:net';
+import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {dirname,join,relative,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
+import {once} from 'node:events';
 import {buildBubblewrapLaunch,type LinuxBubblewrapSandbox} from '../packages/tool-host/src/sandbox.js';
 import {ProcessToolHost} from '../packages/tool-host/src/index.js';
 import {ManagedSessionRunner} from '../packages/session-runtime/src/index.js';
@@ -49,12 +51,13 @@ test('M3 sandbox: Linux namespace argv has no network, no inherited environment 
     },t.path,compiledRoot,worker);
     const args=result.argv;
     assert.equal(result.executable,realpathSync(process.execPath));
-    for(const flag of ['--unshare-all','--die-with-parent','--new-session','--clearenv',
+    for(const flag of ['--unshare-all','--unshare-user','--cap-drop','--die-with-parent','--new-session','--clearenv',
       '--proc','--dev','--tmpfs','--ro-bind','--bind','--chdir']){
       assert.equal(args.includes(flag),true,flag);
     }
     assert.equal(args.includes('--ro-bind') && args.includes('/'),false);
     assert.equal(args.includes('--share-net'),false);
+    assert.equal(args[args.indexOf('--cap-drop')+1],'ALL');
     assert.equal(args.includes('--ro-bind-try'),false);
     assert.equal(args.includes('--unshare-user-try'),false);
     assert.equal(args.at(-4),'--');
@@ -73,6 +76,10 @@ test('M3 sandbox: missing launcher and trust configuration fail before worker la
       t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
     assert.throws(()=>buildBubblewrapLaunch({...config(),runtimeReadOnlyDirectories:['/']},
       t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+    for(const forbidden of ['/proc','/sys','/dev','/tmp','/home','/etc','/var','/run']){
+      assert.throws(()=>buildBubblewrapLaunch({...config(),runtimeReadOnlyDirectories:[...runtime(),forbidden]},
+        t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'},forbidden);
+    }
     assert.throws(()=>new ProcessToolHost(t.path,400,{...config(),binaryPath:'/missing/namespace/bwrap'}),
       {code:'HOST_SANDBOX_UNAVAILABLE'});
   }finally{t.done();}
@@ -148,4 +155,63 @@ test('M3 sandbox: actual bwrap namespace worker uses durable Host ledger if supp
       assert.equal(ledger.inspect('session')[0]?.state,'succeeded');
     }finally{journal.close();ledger.close();}
   }finally{host.close();tmp.done();}
+});
+
+test('M3 sandbox: real namespace denies parent-only file, code write and host loopback; permits dedicated SQLite dir',async t=>{
+  if(process.platform!=='linux'||!existsSync('/usr/bin/bwrap'))return t.skip('Bubblewrap missing');
+  const tmp=temp();
+  const secretPath=join(tmp.folder,'parent-only-secret');
+  writeFileSync(secretPath,'sensitive-parent-data');
+  const listener=createServer();
+  let connections=0;
+  listener.on('connection',socket=>{connections++;socket.destroy();});
+  listener.listen(0,'127.0.0.1');
+  try{
+    await once(listener,'listening');
+    const endpoint=listener.address();
+    assert.ok(endpoint && typeof endpoint!=='string');
+    const original=buildBubblewrapLaunch(config(),tmp.path,compiledRoot,worker);
+    const offset=original.argv.lastIndexOf('--');
+    assert.ok(offset>0);
+    const probe=String.raw`
+      import * as fs from 'node:fs';
+      import * as net from 'node:net';
+      import {dirname,join} from 'node:path';
+      const db=process.argv[1],outside=process.argv[2],codeRoot=process.argv[3],port=Number(process.argv[4]);
+      let privateFileReadable=false,codeWritable=false,dbWritable=false;
+      try{fs.readFileSync(outside,'utf8');privateFileReadable=true;}catch{}
+      try{fs.writeFileSync(join(codeRoot,'MUST_NOT_WRITE_SANDBOX'),'x');codeWritable=true;}catch{}
+      try{
+        const location=join(dirname(db),'sandbox-scratch-test');
+        fs.writeFileSync(location,'ok');dbWritable=fs.readFileSync(location,'utf8')==='ok';fs.unlinkSync(location);
+      }catch{}
+      const networkConnected=await new Promise(resolve=>{
+        const socket=net.connect({host:'127.0.0.1',port});
+        socket.once('connect',()=>{socket.destroy();resolve(true);});
+        socket.once('error',()=>resolve(false));
+        socket.setTimeout(1200,()=>{socket.destroy();resolve(false);});
+      });
+      console.log(JSON.stringify({privateFileReadable,codeWritable,dbWritable,networkConnected}));
+    `;
+    const args=[...original.argv.slice(0,offset+1),binary,'--input-type=module','-e',
+      probe,tmp.path,secretPath,compiledRoot,String(endpoint.port)];
+    const child=spawn(original.executable,args,{env:{},stdio:['ignore','pipe','pipe']});
+    let output='',errors='';
+    child.stdout.on('data',(part:Buffer)=>{output+=part.toString();});
+    child.stderr.on('data',(part:Buffer)=>{errors+=part.toString();});
+    const result=await Promise.race([
+      new Promise<number|null>(resolve=>child.once('close',resolve)),
+      new Promise<never>((_,reject)=>setTimeout(()=>{child.kill('SIGKILL');reject(Error('Namespace probe timed out'));},7000)),
+    ]);
+    if(result!==0){
+      if(/creating new namespace failed|Operation not permitted|No permissions/.test(errors))
+        return t.skip('Kernel denied strict Bubblewrap user namespace');
+      assert.fail('Namespace probe unexpectedly failed: '+errors.slice(0,500));
+    }
+    const observation=JSON.parse(output.trim()) as Record<string,boolean>;
+    assert.deepEqual(observation,{
+      privateFileReadable:false,codeWritable:false,dbWritable:true,networkConnected:false,
+    });
+    assert.equal(connections,0);
+  }finally{listener.close();tmp.done();}
 });
