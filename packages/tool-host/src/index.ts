@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readlinkSync } from 'node:fs';
+import { readlinkSync,readFileSync,realpathSync,statfsSync,writeFileSync } from 'node:fs';
+import { resolve,relative,isAbsolute } from 'node:path';
+import { readUnifiedCgroupPath } from './enforced.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
@@ -33,6 +35,8 @@ export class ProcessToolHost {
   private readonly pending = new Map<string, Pending>();
   private ended = false;
   private readonly sandboxed:boolean;
+  private readonly dedicatedCgroupLeaf?:string;
+  private cleanupError?:KernelError;
   private readonly ready: Promise<void>;
   private signalReady!: () => void;
   private rejectReady!: (error: Error) => void;
@@ -42,6 +46,13 @@ export class ProcessToolHost {
   constructor(databasePath: string, private readonly timeoutMs = 4000,
     sandbox?: LinuxBubblewrapSandbox) {
     this.sandboxed=sandbox!==undefined;
+    if(sandbox?.dedicatedCgroup){
+      const leaf=readUnifiedCgroupPath('0::'+sandbox.dedicatedCgroup.relativePath);
+      const parent=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
+      if(parent==='/' ? leaf==='/' : !leaf.startsWith(parent+'/'))
+        throw new KernelError('HOST_CGROUP_UNAVAILABLE','Dedicated Host must have a strict descendant cgroup');
+      this.dedicatedCgroupLeaf=leaf;
+    }
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
       throw new KernelError('HOST_INVALID_OPTIONS', 'Invalid Host database path or timeout');
     }
@@ -70,9 +81,20 @@ export class ProcessToolHost {
       // No bwrap binary, bad mount allowlist or unsupported Linux => no fallback.
       const compiledRoot=fileURLToPath(new URL('../../../',import.meta.url));
       const launch=buildBubblewrapLaunch(sandbox,databasePath,compiledRoot,fileURLToPath(worker));
-      this.child=spawn(launch.executable,[...launch.argv],{
-        env:{},stdio:['pipe','pipe','ignore'],
-      });
+      if(sandbox.dedicatedCgroup){
+        // Trusted launcher self-migrates into a bounded empty leaf BEFORE
+        // spawning bwrap; a failed migration can never run the worker.
+        const launcher=fileURLToPath(new URL('./cgroup-launcher.js',import.meta.url));
+        this.child=spawn(process.execPath,[
+          launcher,sandbox.dedicatedCgroup.relativePath,
+          JSON.stringify(sandbox.dedicatedCgroup.budget),
+          launch.executable,...launch.argv,
+        ],{env:{},stdio:['pipe','pipe','ignore']});
+      }else{
+        this.child=spawn(launch.executable,[...launch.argv],{
+          env:{},stdio:['pipe','pipe','ignore'],
+        });
+      }
       this.child.stdout?.setEncoding('utf8');
     }else{
       this.child=fork(worker,[databasePath],{
@@ -146,6 +168,24 @@ export class ProcessToolHost {
   }
 
   get pid(): number | undefined { return this.child.pid; }
+  /** Report a kernel refusal to kill the dedicated group; operator intervention required. */
+  get cgroupCleanupError():KernelError|undefined {return this.cleanupError;}
+
+  private killDedicatedGroup():void{
+    const leaf=this.dedicatedCgroupLeaf;
+    if(!leaf)return;
+    try{
+      const root=realpathSync('/sys/fs/cgroup');
+      if(statfsSync(root).type!==0x63677270)throw Error('Cgroup v2 unavailable');
+      const target=realpathSync(resolve(root,'.'+leaf));
+      const rel=relative(root,target);
+      if(rel.startsWith('..')||isAbsolute(rel))throw Error('Cgroup path escaped root');
+      writeFileSync(resolve(target,'cgroup.kill'),'1');
+    }catch{
+      this.cleanupError=new KernelError('HOST_CGROUP_CLEANUP_FAILED',
+        'Dedicated Host cgroup.kill failed: supervisor intervention required');
+    }
+  }
 
   /** Wait for OS namespace identity checks, not merely process spawn. */
   async waitUntilReady():Promise<void>{ await this.ready; }
@@ -153,6 +193,7 @@ export class ProcessToolHost {
   private failAll(): void {
     if (this.ended) return;
     this.ended = true;
+    this.killDedicatedGroup();
     if (!this.readySettled) {
       this.readySettled = true;
       this.rejectReady(new KernelError(this.sandboxed?'HOST_SANDBOX_UNAVAILABLE':'TOOL_OUTCOME_UNKNOWN',
