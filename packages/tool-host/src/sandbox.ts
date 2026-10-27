@@ -13,6 +13,10 @@ export interface LinuxBubblewrapSandbox {
    * No automatic bind of the host root, /home, /proc, /var, or /etc.
    */
   readonly runtimeReadOnlyDirectories:readonly string[];
+  /** Hard limit on the private /tmp tmpfs, defaults to 16 MiB. */
+  readonly privateTmpBytes?:number;
+  /** Startup/namespace attestation deadline in milliseconds. */
+  readonly startupTimeoutMs?:number;
 }
 export interface BubblewrapLaunch {
   readonly executable:string;
@@ -63,6 +67,11 @@ export function buildBubblewrapLaunch(
   const dbDir=realDirectory(dirname(db));
   if(!disjoint(app,dbDir))return fail();
   const runtime=sandbox.runtimeReadOnlyDirectories.map(realDirectory);
+  if(!runtime.some(root=>within(binary,root)))return fail();
+  if(sandbox.privateTmpBytes!==undefined && (!Number.isSafeInteger(sandbox.privateTmpBytes)
+    || sandbox.privateTmpBytes<1024*1024 || sandbox.privateTmpBytes>128*1024*1024))return fail();
+  if(sandbox.startupTimeoutMs!==undefined && (!Number.isSafeInteger(sandbox.startupTimeoutMs)
+    || sandbox.startupTimeoutMs<1 || sandbox.startupTimeoutMs>60_000))return fail();
   // Never let a caller accidentally import host control files / devices,
   // procfs, sockets, user home or the temporary workspace into the worker.
   const sensitive=['/proc','/sys','/dev','/run','/tmp','/home','/root','/var','/etc'];
@@ -82,7 +91,8 @@ export function buildBubblewrapLaunch(
     '--unshare-user','--cap-drop','ALL',
     '--clearenv','--setenv','AGENT_HOST_STDIO','1',
     '--setenv','HOME','/tmp','--setenv','TMPDIR','/tmp',
-    '--proc','/proc','--dev','/dev','--tmpfs','/tmp',
+    '--proc','/proc','--dev','/dev',
+    '--size',String(sandbox.privateTmpBytes??16*1024*1024),'--perms','0700','--tmpfs','/tmp',
   ];
   for(const path of runtime)argv.push('--ro-bind',path,path);
   // On merged-/usr Linux distributions the ELF loader still references
