@@ -51,8 +51,18 @@ async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => v
 }
 
 /** Preflight is synchronous and ordered. Parallel read bodies run together; exclusive tools are barriers. */
-export async function executeBatch(calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal, assertLease?: () => void): Promise<readonly ToolResult[]> {
+export async function executeBatch(
+  calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal,
+  assertLease?: () => void, onResult?: (result: ToolResult) => Promise<void>,
+): Promise<readonly ToolResult[]> {
   const prepared = preflight(calls, registry);
+  // Every result (including denied/preflight failures) reaches the durable
+  // receipt callback before the batch can report successful completion.
+  // Callback failure must propagate; NEVER disguise it as a ToolResult failure.
+  const commit = async (result: ToolResult): Promise<ToolResult> => {
+    await onResult?.(result);
+    return result;
+  };
   const results: ToolResult[] = new Array(prepared.length);
   let group: Array<{ index: number; item: Prepared }> = [];
   const flush = async (): Promise<void> => {
@@ -61,7 +71,7 @@ export async function executeBatch(calls: readonly ToolCall[], registry: ToolReg
     // Drain all in-flight read calls before propagating lease failure so a
     // runner does not release the claim while parallel reads are still active.
     const settled = await Promise.allSettled(tasks.map(async ({ index, item }) => ({
-      index, value: await invoke(item, signal, assertLease),
+      index, value: await commit(await invoke(item, signal, assertLease)),
     })));
     for (const item of settled) {
       if (item.status === 'fulfilled') results[item.value.index] = item.value.value;
@@ -71,10 +81,10 @@ export async function executeBatch(calls: readonly ToolCall[], registry: ToolReg
   };
   for (let index = 0; index < prepared.length; index++) {
     const item = prepared[index]!;
-    if (item.immediate) { results[index] = item.immediate; continue; }
+    if (item.immediate) { results[index] = await commit(item.immediate); continue; }
     if (item.definition?.concurrency === 'exclusive') {
       await flush();
-      results[index] = await invoke(item, signal, assertLease);
+      results[index] = await commit(await invoke(item, signal, assertLease));
     } else group.push({ index, item });
   }
   await flush();
