@@ -94,7 +94,7 @@ export class ProcessToolHost {
               mount:'mnt',network:'net',pid:'pid',user:'user',
             })){
               const remote=namespaces[key],local=readlinkSync('/proc/self/ns/'+linuxName);
-              if(typeof remote!=='string'||!/^\\w+:\\[\\d+\\]$/.test(remote)||remote===local){
+              if(typeof remote!=='string'||!/^\w+:\[\d+\]$/.test(remote)||remote===local){
                 this.close();return;
               }
             }
