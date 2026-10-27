@@ -61,17 +61,17 @@ try{
 
 ## 测试与未验证条件
 
-新增 `tests/dedicated-cgroup-tool-host.test.ts` **10 项**：
+新增 `tests/dedicated-cgroup-tool-host.test.ts` **11 项**：
 
 - 空的、严格位于父 cgroup 下的叶子与直接有限额度能够通过纯文件系统的策略检查；
-- 叶子本身无限额即使祖先有限仍拒绝；
+- 叶子本身无限额即使祖先有限仍拒绝；微小 CPU 超额按 millicores 向上取整，不能以截断方式错误放行；
 - populated 1、现存 PID、缺少 `cgroup.kill` 不得认作专有资源；
 - 错误层级、逃逸路径、符号链接与三项资源任何一项过预算都拒绝；
 - 缺失 Bubblewrap/Leaf 参数的安全入口不得启动；
 - 真实 Linux 缺少目标委派目录时 fail-closed；
 - **真实受信 launcher 进程**请求无效迁组时，所带子命令不会执行，不会创建测试标记文件。
 
-累计目标由 227 增至 **237 项**；Node 22 / 22.16.0 的 `npm run check` 与 `npm test` 以 PR CI 最终结果为准。上述纯文件夹模拟只是验证**策略和错误分支**，不是 Linux cgroup 2 控制器端到端成功迁组与强制限额测试。完成这项正向验证需要支持 `cgroup.subtree_control` 委派和 `cgroup.kill` 的隔离 CI runner 或专用受信 Linux VM。
+累计目标由 227 增至 **238 项**；Node 22 / 22.16.0 的 `npm run check` 与 `npm test` 以 PR CI 最终结果为准。上述纯文件夹模拟只是验证**策略和错误分支**，不是 Linux cgroup 2 控制器端到端成功迁组与强制限额测试。完成这项正向验证需要支持 `cgroup.subtree_control` 委派和 `cgroup.kill` 的隔离 CI runner 或专用受信 Linux VM。
 
 ## 仍未完成的能力
 

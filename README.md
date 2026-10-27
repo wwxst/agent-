@@ -100,8 +100,8 @@
 - **M3 Linux Bubblewrap Host（已合并 main）**：新增可选的 OS namespace 隔离 Worker、只读 runtime/code 与专用 SQLite RW 挂载、独立有界 JSON-line IPC、启动时 namespace 身份校验和绝不降级回退；新增 8 项含真实 Linux Worker 和私有文件/网络隔离验证的测试。
 - **M3 沙箱启动强化（已合并 main）**：仅允许来自显式 RO runtime 的 bwrap 可执行文件；隔离 Worker 启动未 READY 超时则拒绝，不回退普通 Host；/tmp 私有 tmpfs 配置 1–128 MiB 硬容量。新增 4 项测试。
 - **M3 安全部署入口（已合并 main）**：新增 `startEnforcedToolHost`，要求 Linux Bubblewrap 以及已由宿主内核强制的 CPU/内存/PID cgroup v2 共享额度，验证命名空间 READY 和 launcher cgroup 归属；不满足条件坚决拒绝，不提供默认降级。新增 11 项测试。
-- **M3 Worker 独立 cgroup（本轮分支）**：新增 `startDedicatedToolHost`、受信 `cgroup-launcher` 先迁组再启动 Bubblewrap、独立叶子直接有限额度和空组强制检查、整组 `cgroup.kill` 退出与清理故障报告；新增 10 项策略/真实拒绝测试。尚无真实成功委派 cgroup 环境的正向验收。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 237 项；基线已有 1 项真实继承 cgroup 的测试条件跳过，专用 cgroup 成功迁组需有委派的受信 Linux Runner。
+- **M3 Worker 独立 cgroup（本轮分支）**：新增 `startDedicatedToolHost`、受信 `cgroup-launcher` 先迁组再启动 Bubblewrap、独立叶子直接有限额度和空组强制检查、整组 `cgroup.kill` 退出与清理故障报告；新增 11 项策略/真实拒绝测试。尚无真实成功委派 cgroup 环境的正向验收。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 238 项；基线已有 1 项真实继承 cgroup 的测试条件跳过，专用 cgroup 成功迁组需有委派的受信 Linux Runner。
 - **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/seccomp/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
