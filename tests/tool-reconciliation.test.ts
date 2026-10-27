@@ -281,3 +281,44 @@ test('M1 reconciliation: readonly observer does not change any persisted rows or
     } finally {verify.close();}
   } finally {leases.close();tmp.cleanup();}
 });
+
+
+test('M1 reconciliation: receipt without its atomic tool.result is corrupt, not verified',async()=>{
+  const tmp=tempDb(),leases=new SqliteWriterLeaseStore(tmp.path);
+  try {
+    const lease=leases.acquire('half-pair','a',5000);
+    assert.ok(lease);
+    const call=await seedIntent(tmp.path,lease);
+    const ledger=new HostExecutionLedger(tmp.path);
+    try {ledger.begin(call);ledger.finish(call,'succeeded','hello');}
+    finally {ledger.close();}
+    // Synthetic DB corruption: new Kernel never writes lone receipts.
+    await append(tmp.path,lease,[
+      {type:'tool.receipt',turnId:'turn',
+        data:{callId:'call',name:'read.echo',outcome:'succeeded',content:'hello'}},
+      {type:'turn.completed',turnId:'turn',data:{}},
+    ]);
+    const inspector=new SqliteToolReconciler(tmp.path);
+    try {assert.throws(()=>inspector.inspect('half-pair'),{code:'CORRUPT_EVENT_LOG'});}
+    finally {inspector.close();}
+  } finally {leases.close();tmp.cleanup();}
+});
+
+test('M1 reconciliation: result after an intervening event is corrupt (not atomic)',async()=>{
+  const tmp=tempDb(),leases=new SqliteWriterLeaseStore(tmp.path);
+  try {
+    const lease=leases.acquire('non-atomic','a',5000);
+    assert.ok(lease);
+    await seedIntent(tmp.path,lease);
+    const receipt={callId:'call',name:'read.echo',outcome:'succeeded',content:'hello'};
+    await append(tmp.path,lease,[
+      {type:'tool.receipt',turnId:'turn',data:receipt},
+      {type:'model.started',turnId:'turn',data:{step:2}},
+      {type:'tool.result',turnId:'turn',data:receipt},
+      {type:'turn.completed',turnId:'turn',data:{}},
+    ]);
+    const inspector=new SqliteToolReconciler(tmp.path);
+    try {assert.throws(()=>inspector.inspect('non-atomic'),{code:'CORRUPT_EVENT_LOG'});}
+    finally {inspector.close();}
+  } finally {leases.close();tmp.cleanup();}
+});
