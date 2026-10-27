@@ -88,9 +88,13 @@ test('M2 control: scoped authenticated HTTP accepts and dispatches exactly once 
 test('M2 control: missing, wrong, malformed and case-changed bearer credentials fail before SQLite writes',async()=>{
   const f=await fixture();
   try{
-    for(const key of [undefined,token(),'bad-token','bearer '+f.secret,'Bearer '+f.secret+' ']){
-      const route=await json(f.server.origin,'POST',base,key===undefined?undefined:key.startsWith('bearer ')||key.startsWith('Bearer ')?undefined:key,
-        acceptBody(),key?.startsWith('bearer ')||key?.startsWith('Bearer ')?{Authorization:key}:{});
+    for(const key of [undefined,token(),'bad-token']){
+      const route=await json(f.server.origin,'POST',base,key,acceptBody());
+      assert.equal(route.status,401,JSON.stringify(route));
+      assert.deepEqual(route.body,{error:'UNAUTHENTICATED'});
+    }
+    for(const header of ['bearer '+f.secret,'Bearer '+f.secret+' ']){
+      const route=await json(f.server.origin,'POST',base,undefined,acceptBody(),{Authorization:header});
       assert.equal(route.status,401,JSON.stringify(route));
       assert.deepEqual(route.body,{error:'UNAUTHENTICATED'});
     }
@@ -125,8 +129,20 @@ test('M2 control: session scope and permissions are independently enforced',asyn
 test('M2 control: hostile Host and browser Origin are refused even with a valid token',async()=>{
   const f=await fixture();
   try{
-    const host=await json(f.server.origin,'POST',base,f.secret,acceptBody(),{Host:'attacker.example'});
-    assert.equal(host.status,400);
+    // Node fetch may synthesize its own Host. Raw HTTP makes DNS-rebinding
+    // simulation unambiguous even under different Undici/Node 22 versions.
+    const raw=new URL(f.server.origin);
+    const hostStatus=await new Promise<number>((resolve,reject)=>{
+      const req=httpRequest({hostname:raw.hostname,port:Number(raw.port),path:base,method:'POST',
+        headers:{Host:'attacker.example',Authorization:'Bearer '+f.secret,
+          'Content-Type':'application/json'}},res=>{
+        res.resume();
+        res.on('end',()=>resolve(res.statusCode??0));
+      });
+      req.on('error',reject);
+      req.end(JSON.stringify(acceptBody()));
+    });
+    assert.equal(hostStatus,400);
     const origin=await json(f.server.origin,'POST',base,f.secret,acceptBody(),{Origin:'https://attacker.example'});
     assert.equal(origin.status,400);
     const preflight=await json(f.server.origin,'OPTIONS',base,f.secret);
