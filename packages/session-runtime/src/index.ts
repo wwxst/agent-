@@ -29,6 +29,7 @@ export interface ManagedSessionOptions {
 export class ManagedSessionRunner {
   private readonly ttlMs: number;
   private readonly renewEveryMs: number;
+  private readonly activeKernels = new Map<SessionId, AgentKernel>();
 
   constructor(
     private readonly databasePath: string,
@@ -53,12 +54,12 @@ export class ManagedSessionRunner {
     let journal: SqliteEventStore | undefined;
     let heartbeat: NodeJS.Timeout | undefined;
     let claim: import('../../session-leases-sqlite/src/index.js').WriterLease | null = null;
+    let kernel: AgentKernel | undefined;
     try {
       claim = leases.acquire(sessionId, randomUUID(), this.ttlMs);
       if (!claim) throw new KernelError('SESSION_BUSY', 'Another writer owns this session');
 
       let lost = false;
-      let kernel: AgentKernel | undefined;
       const markLost = (): void => {
         if (!lost) {
           lost = true;
@@ -86,6 +87,7 @@ export class ManagedSessionRunner {
       };
       const tools = typeof this.tools === 'function' ? this.tools(claim) : this.tools;
       kernel = new AgentKernel(journal, this.provider, tools, kernelOptions, this.onDelta);
+      this.activeKernels.set(sessionId,kernel);
       // Heartbeat is synchronous, so timer ticks never overlap each other.
       // Timer stalls can still let the claim expire; boundary checks fail closed.
       heartbeat = setInterval(() => {
@@ -101,6 +103,7 @@ export class ManagedSessionRunner {
       guard(); // Do not claim success after ownership was lost.
       return result;
     } finally {
+      if (kernel && this.activeKernels.get(sessionId) === kernel) this.activeKernels.delete(sessionId);
       if (heartbeat) clearInterval(heartbeat);
       try {
         if (claim) leases.release(claim); // stale tokens cannot release new owners
@@ -141,6 +144,12 @@ export class ManagedSessionRunner {
         inbox.close();
       }
     });
+  }
+
+  /** Route steering to the *currently leased* in-process Turn; no new writer claim. */
+  steerTurn(sessionId: SessionId, expectedTurnId: TurnId, text: string): Promise<boolean> {
+    const kernel = this.activeKernels.get(sessionId);
+    return kernel ? kernel.steerTurn(sessionId,expectedTurnId,text) : Promise.resolve(false);
   }
 
   /** Read via short-lived claim to keep the API consistent with the writer facade. */
