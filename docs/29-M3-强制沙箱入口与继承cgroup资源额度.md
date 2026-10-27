@@ -2,6 +2,8 @@
 
 > 范围：新增受信宿主代码显式调用的 **`startEnforcedToolHost()`**。该入口不允许遗漏 Linux Bubblewrap 或资源预算，先证明当前进程所在 cgroup v2 已被内核限制，再启动并等待 sandbox namespace 就绪。**不是自动为 Worker 创建独占 cgroup，更不是将全部旧版 Tool Host API 替换为强制沙箱**。高风险工具和未知结果自动重放继续禁用。
 
+> **M3-33 安全门槛变更**：此受信资源约束入口现在必须明确传入 `sandbox.seccompPolicy:'network-and-privilege-deny-v1'`（仅 Linux x86-64）；缺失或不受支持则在探测 cgroup 和启动 Host 前拒绝。共享组入口还禁止调用方预填内部 `sandbox.dedicatedCgroup` 字段。旧版未含该字段的示例不能作为当前可执行的安全配置。
+
 ## 为什么需要部署入口
 
 `new ProcessToolHost(path, timeout)` 是为既有 M1 测试兼容保留的未隔离子进程形式。M3-27 / M3-28 已实现显式配置的 Linux Bubblewrap namespace，但业务侧可能漏传第三个 `sandbox` 参数。本轮新增 **另一个必须明确选择的入口**，适合受信部署管理程序在正式启动之前执行最小安全预检：
@@ -14,6 +16,7 @@ const {host,limits} = await startEnforcedToolHost({
   sandbox:{
     binaryPath:'/usr/bin/bwrap',
     runtimeReadOnlyDirectories:['/usr'],
+    seccompPolicy:'network-and-privilege-deny-v1',
     privateTmpBytes:16*1024*1024,
     startupTimeoutMs:5000,
   },

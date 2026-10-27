@@ -54,6 +54,13 @@ export class ProcessToolHost {
     sandbox?: LinuxBubblewrapSandbox) {
     this.sandboxed=sandbox!==undefined;
     this.seccompRequired=sandbox?.seccompPolicy!==undefined;
+    // Even direct trusted callers cannot attach a dedicated cgroup via this
+    // lower-level constructor without the same restrictive syscall profile.
+    // Legacy non-dedicated Host calls remain backwards compatible.
+    if(sandbox?.dedicatedCgroup &&
+      sandbox.seccompPolicy!=='network-and-privilege-deny-v1')
+      throw new KernelError('HOST_SECCOMP_UNAVAILABLE',
+        'Dedicated Tool Host requires the verified seccomp profile');
     this.expectedWorkerPath=fileURLToPath(new URL('./worker.js',import.meta.url));
     this.expectedNodePath=process.execPath;
     this.expectedDatabasePath=databasePath;

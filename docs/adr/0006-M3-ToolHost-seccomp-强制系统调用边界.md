@@ -16,6 +16,10 @@
 4. 启动 READY 和每次 ToolCall 前，在原有 /proc PID/namespace proof 上叠加 `Seccomp:2` 和严格大于宿主的 `Seccomp_filters` 核验；该核验确认至少安装了一个新的 kernel filter，但 **不能证明 BPF 字节属于特定版本**，不可声称数字认证。
 5. Node/V8/libuv 和 SQLite 需要正常运行；不采取未验证地禁止 `clone`、`execve` 或 `openat` 的激进做法。Worker 的全部允许工具仍只有 `read.echo/read.sleep`，仍依赖原 Tool Intent/Receipt/Fencing、孤儿未知结果保守审核机制。
 
+### M3-33 补充决策（受限工厂需强制启动策略）
+
+针对 `startEnforcedToolHost` 和 `startDedicatedToolHost` 这两条有资源/权限保证语义的受信工厂，**将显式 seccomp profile 升级为必需配置**，在探测或更改 cgroup 之前检验 Linux/x64 和固定 BPF 编译能力，缺省则 fail-closed。两个工厂不得接受调用方注入的内部 `sandbox.dedicatedCgroup`；专有组描述只能在可信验证完成后由工厂生成。底层 `ProcessToolHost` 专有组模式也必须配有该 profile，原兼容普通/非专有 Worker API 不因此改变。该变更只对安全入口收紧行为，不代表全部宿主入口不可绕过。
+
 ## 替代方案及拒绝理由
 
 - **只用 Bubblewrap network namespace**：无法禁止子进程自行创建 socket 等系统调用；缺少 syscall 层执行限制。

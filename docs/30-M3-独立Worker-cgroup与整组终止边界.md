@@ -2,6 +2,8 @@
 
 > 本阶段交付**显式启用、需要已委派 Linux cgroup v2 子组**的 `startDedicatedToolHost()`。这不是自动为用户配置内核资源控制器，不支持 Mac/Windows，不增加新工具或外部副作用权限。GitHub Actions 的标准 Runner 不具备实际委派的子组，因此完整正向迁组运行必须在受信 Linux supervisor 的受控环境补测；未运行的测试不能被报告为已通过。
 
+> **M3-33 安全门槛变更**：专有 Worker cgroup 资源工厂现在强制要求 `sandbox.seccompPolicy:'network-and-privilege-deny-v1'`，拒绝调用方自行提供 `sandbox.dedicatedCgroup`。后者仅可由通过预检的可信工厂内部生成；底层直接构造器的专有组模式也不得缺少 seccomp。仅支持 Linux x86-64。
+
 ## 问题与新边界
 
 M3-29 的 `startEnforcedToolHost()` 只能验证**控制器和 Worker 共用的父 cgroup 有限额度**。其 CPU、内存和 PID 限制可能被父进程或其他服务挤占，并非 Worker 自身的独立限制。这次引入另一条更严格的部署入口，不改变兼容用的 `ProcessToolHost` 或旧共享组入口：
@@ -14,6 +16,7 @@ const {host,limits}=await startDedicatedToolHost({
   sandbox:{
     binaryPath:'/usr/bin/bwrap',
     runtimeReadOnlyDirectories:['/usr'], // 按真实发行版配置
+    seccompPolicy:'network-and-privilege-deny-v1',
     privateTmpBytes:16*1024*1024,
     startupTimeoutMs:5000,
   },
