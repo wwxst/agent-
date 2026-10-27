@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import {accessSync,constants,existsSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
-import {dirname,join,relative,resolve} from 'node:path';
+import {dirname,join,relative,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 import {buildBubblewrapLaunch,type LinuxBubblewrapSandbox} from '../packages/tool-host/src/sandbox.js';
@@ -20,16 +20,11 @@ const root=dirname(dirname(binary));
 function temp(){
   const folder=mkdtempSync(join(tmpdir(),'sandbox-host-'));
   const dbDir=join(folder,'sqlite');
-  const {mkdirSync}=requireNodeFs();
   mkdirSync(dbDir);
   const path=join(dbDir,'events.sqlite');
   writeFileSync(path,'');
   return {folder,path,done:()=>rmSync(folder,{force:true,recursive:true})};
 }
-// Avoid mixing CommonJS require into ESM tests.
-function requireNodeFs(){return {mkdirSync:(path:string)=>{
-  const {execFileSync}=undefined as never;void execFileSync;void path;
-}}}
 const runtime=():readonly string[]=>{
   const values=['/usr',root].filter((value,index,all)=>all.indexOf(value)===index);
   return values.filter(value=>{
@@ -42,7 +37,7 @@ const config=():LinuxBubblewrapSandbox=>({
 });
 const inside=(rootPath:string,maybeChild:string)=>{
   const rel=relative(rootPath,maybeChild);
-  return rel===''||(!rel.startsWith('..')&&!rel.startsWith('/'));
+  return rel===''||(!rel.startsWith('..')&&!isAbsolute(rel));
 };
 
 test('M3 sandbox: Linux namespace argv has no network, no inherited environment and no root bind',()=>{
@@ -62,9 +57,10 @@ test('M3 sandbox: Linux namespace argv has no network, no inherited environment 
     assert.equal(args.includes('--share-net'),false);
     assert.equal(args.includes('--ro-bind-try'),false);
     assert.equal(args.includes('--unshare-user-try'),false);
-    assert.equal(args.at(-3),'--');
-    assert.equal(args.at(-2),binary);
-    assert.equal(args.at(-1),worker,false); // Actually db path follows worker.
+    assert.equal(args.at(-4),'--');
+    assert.equal(args.at(-3),binary);
+    assert.equal(args.at(-2),worker);
+    assert.equal(args.at(-1),realpathSync(t.path));
   }finally{t.done();}
 });
 
@@ -132,7 +128,7 @@ test('M3 sandbox: invalid bubblewrap launch cannot switch over to the unfenced l
 test('M3 sandbox: actual bwrap namespace worker uses durable Host ledger if supported',async(t)=>{
   if(process.platform!=='linux'||!existsSync('/usr/bin/bwrap'))return t.skip('Bubblewrap missing');
   const probe=spawnSync('/usr/bin/bwrap',['--unshare-all','--die-with-parent',
-    '--ro-bind','/usr','/usr','--proc','/proc','--dev','/dev',
+    '--ro-bind','/','/','--proc','/proc','--dev','/dev',
     '--','/usr/bin/true'],{encoding:'utf8',timeout:2000});
   if(probe.status!==0) return t.skip('Linux user namespaces denied by host policy');
   const tmp=temp(),host=new ProcessToolHost(tmp.path,3000,config());
