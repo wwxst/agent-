@@ -18,6 +18,7 @@ interface MutableEntry {
   intentSeq: number;
   receiptSeq?: number;
   outcome: ToolResult['outcome'];
+  receiptContent?: string;
   seenResult: boolean;
 }
 
@@ -75,10 +76,12 @@ export function inspectToolAudit(events: readonly KernelEvent[]): readonly ToolA
       }
       existing.receiptSeq = event.seq;
       existing.outcome = data.outcome as ToolResult['outcome'];
+      existing.receiptContent = data.content;
     } else if (existing) {
       // New-format tool.result must follow its durable receipt.
       if (existing.receiptSeq === undefined || existing.seenResult
-        || existing.name !== name || existing.outcome !== data.outcome) {
+        || existing.name !== name || existing.outcome !== data.outcome
+        || existing.receiptContent !== data.content) {
         return corrupt('Tool result does not match its receipt');
       }
       existing.seenResult = true;
