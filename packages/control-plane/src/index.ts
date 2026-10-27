@@ -3,7 +3,7 @@ import { KernelError, ConflictError } from '../../contracts/src/index.js';
 import type { ManagedSessionRunner } from '../../session-runtime/src/index.js';
 import { SqliteCommandDispatcher } from '../../command-dispatcher/src/index.js';
 import { SqliteCommandInbox } from '../../command-inbox/src/index.js';
-import { ControlKeyring, type ControlPrincipalConfig, type ControlPermission } from './auth.js';
+import { ControlKeyring, type ControlAuthorizer, type ControlPrincipalConfig, type ControlPermission } from './auth.js';
 
 const MAX_BODY = 70*1024;
 const ROUTE=/^\/v1\/sessions\/([A-Za-z0-9_-]{1,128})\/commands(?:\/([A-Za-z0-9_-]{1,128})(\/dispatch)?)?$/;
