@@ -206,6 +206,46 @@ export class SqliteCommandInbox {
     }
   }
 
+  /**
+   * Consistent read-only ACK lookup, suitable for authenticated status APIs.
+   * Never trust the command table alone: the original event must match.
+   */
+  inspectAccepted(sessionId:string,commandId:string):AcceptedCommand|undefined {
+    if(!validText(sessionId,256) || !validText(commandId,128))
+      throw new KernelError('INVALID_COMMAND','Invalid command identity');
+    this.db.exec('BEGIN');
+    try{
+      const row=this.db.prepare(`
+        SELECT command_id,kind,fingerprint,accepted_seq FROM session_commands
+        WHERE session_id=? AND command_id=?
+      `).get(sessionId,commandId);
+      if(!row) {
+        this.db.exec('COMMIT');
+        return undefined;
+      }
+      const event=this.db.prepare(`
+        SELECT type,turn_id,data_json FROM kernel_events
+        WHERE session_id=? AND seq=?
+      `).get(sessionId,row.accepted_seq as number);
+      if(!event || event.type!=='command.accepted' || event.turn_id!==null)
+        throw new KernelError('CORRUPT_EVENT_LOG','Command ACK missing original event');
+      const data=JSON.parse(event.data_json as string) as unknown;
+      if(!data || typeof data!=='object' || Array.isArray(data))
+        throw new KernelError('CORRUPT_EVENT_LOG','Invalid ACK payload');
+      const ack=data as Record<string,unknown>;
+      if(ack.commandId!==row.command_id || ack.kind!==row.kind
+        ||ack.fingerprint!==row.fingerprint)
+        throw new KernelError('CORRUPT_EVENT_LOG','Command ACK mismatch');
+      this.db.exec('COMMIT');
+      return {sessionId,commandId,kind:row.kind as string,
+        fingerprint:row.fingerprint as string,
+        acceptedSeq:row.accepted_seq as number,replayed:true};
+    }catch(error){
+      if(this.db.isTransaction)this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   /** Audit returns metadata only. Do not expose persisted payloads by default. */
   list(sessionId:string):readonly AcceptedCommand[] {
     if(!validText(sessionId,256)) throw new KernelError('INVALID_SESSION','Session required');
