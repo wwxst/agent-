@@ -104,6 +104,22 @@ export function inspectCgroupV2From(procText:string,mountRoot:string):AttestedCg
   return {relativePath,memoryBytes:memory,pids,cpuMillicores:cpu};
 }
 
+/**
+ * Check that an already-enforced aggregate quota satisfies the trusted
+ * deployment ceiling. This never creates or writes a cgroup; no "dry-run"
+ * outcome authorizes a worker.
+ */
+export function assertInheritedCgroupBudget(limits:AttestedCgroupLimits,budget:CgroupBudget):void{
+  validateBudget(budget);
+  if(!limits || !Number.isSafeInteger(limits.memoryBytes)
+    ||!Number.isSafeInteger(limits.pids)||!Number.isSafeInteger(limits.cpuMillicores)
+    ||limits.memoryBytes<1||limits.pids<1||limits.cpuMillicores<1)
+    denied('Missing trustworthy finite cgroup controller measurements');
+  if(limits.memoryBytes>budget.maxMemoryBytes || limits.pids>budget.maxPids
+    ||limits.cpuMillicores>budget.maxCpuMillicores)
+    denied('Cgroup is not bounded by required aggregate limits');
+}
+
 /** Read the CURRENT process's kernel-enforced aggregate cgroup quota. */
 export function inspectCurrentCgroupV2():AttestedCgroupLimits{
   if(process.platform!=='linux')return unavailable('Linux cgroup v2 required');
@@ -128,10 +144,7 @@ export async function startEnforcedToolHost(options:EnforcedToolHostOptions):Pro
     denied('A Bubblewrap sandbox and cgroup budget are mandatory');
   validateBudget(options.requiredBudget);
   const limits=inspectCurrentCgroupV2();
-  const budget=options.requiredBudget;
-  if(limits.memoryBytes>budget.maxMemoryBytes || limits.pids>budget.maxPids
-    ||limits.cpuMillicores>budget.maxCpuMillicores)
-    denied('Cgroup is not bounded by required aggregate limits');
+  assertInheritedCgroupBudget(limits,options.requiredBudget);
   const host=new ProcessToolHost(options.databasePath,options.timeoutMs??4000,options.sandbox);
   try{
     await host.waitUntilReady();
