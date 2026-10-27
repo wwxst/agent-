@@ -5,6 +5,7 @@ import { SqliteEventStore } from '../../event-store-sqlite/src/index.js';
 import { SqliteWriterLeaseStore, type WriterLease } from '../../session-leases-sqlite/src/index.js';
 import type { ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { SqliteCommandInbox, type AcceptedCommand } from '../../command-inbox/src/index.js';
+import { SqliteCommandDispatcher, type DispatchedTurn } from '../../command-dispatcher/src/index.js';
 import type { ContextCompactor } from '../../context-engine/src/index.js';
 
 export interface ManagedSessionOptions {
@@ -146,6 +147,36 @@ export class ManagedSessionRunner {
       } finally {
         inbox.close();
       }
+    });
+  }
+
+  /**
+   * First delivery: binds an existing 'turn.run' ACK to exactly one Turn and
+   * drives the model under the SAME Writer Lease. Re-delivery: read status
+   * only; never invoke Kernel/Provider/ToolHost again.
+   */
+  dispatchCommand(sessionId:SessionId,commandId:string):Promise<{
+    readonly dispatch:DispatchedTurn;
+    readonly execution?:TurnResult;
+  }> {
+    return this.withLease(sessionId,async (kernel,lease)=>{
+      const dispatcher=new SqliteCommandDispatcher(this.databasePath);
+      try{
+        const prior=dispatcher.inspect(sessionId,commandId);
+        if(prior)return {dispatch:prior};
+        await kernel.openSession(sessionId);
+        const events=await kernel.readEvents(sessionId);
+        const bound=dispatcher.bind({lease,commandId,expectedSeq:events.length});
+        if(bound.replayed)return {dispatch:bound};
+        // runTurn's dispatch proof must equal the exact committed tail.
+        // A crash after bind or model.started is never retried by this API.
+        const execution=await kernel.runTurn(sessionId,bound.text,bound.turnId,{
+          commandId:bound.commandId,boundSeq:bound.boundSeq,
+        });
+        const current=dispatcher.inspect(sessionId,commandId);
+        if(!current)throw new KernelError('CORRUPT_COMMAND_DISPATCH','Dispatch mapping disappeared');
+        return {dispatch:{...current,replayed:false},execution};
+      } finally { dispatcher.close(); }
     });
   }
 

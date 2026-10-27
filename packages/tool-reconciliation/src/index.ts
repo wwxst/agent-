@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { KernelError, type KernelEvent, type KernelEventType, type ToolResult } from '../../contracts/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectTurnBindings } from '../../command-dispatcher/src/audit.js';
 import { inspectContextCheckpoints } from '../../context-engine/src/checkpoint.js';
 import type { HostLedgerEntry } from '../../tool-host/src/ledger.js';
 
@@ -80,7 +81,7 @@ function journalState(events: readonly KernelEvent[], sessionId: string): string
       if (event.turnId !== undefined) return failLog('Creation event must not have turnId');
       continue;
     }
-    if (event.type === 'command.accepted') {
+    if (event.type === 'command.accepted' || event.type === 'command.turn_bound') {
       if (event.turnId !== undefined) return failLog('Command ACK must be session-scoped');
       continue;
     }
@@ -188,6 +189,7 @@ export function reconcileSnapshot(
   hosts: readonly HostLedgerEntry[],
 ): ReconciliationReport {
   const pendingTurnId = journalState(events, sessionId);
+  inspectTurnBindings(events);
   const journal = inspectToolAudit(events);
   const steering = inspectSteeringAudit(events);
   inspectContextCheckpoints(events);
