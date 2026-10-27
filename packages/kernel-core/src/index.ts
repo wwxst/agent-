@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
+import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type ModelTokenUsage, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
+import { admitContext } from '../../context-engine/src/index.js';
 
 interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; fenced?: boolean; }
-export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly assertExecutionLease?: () => void; }
+export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly maxContextCharacters?: number; readonly maxTotalTokens?: number; readonly assertExecutionLease?: () => void; }
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
 
@@ -17,12 +18,20 @@ export class AgentKernel {
   private readonly creating = new Set<SessionId>();
   private readonly maxSteps: number;
   private readonly maxToolCalls: number;
+  private readonly maxContextCharacters: number | undefined;
+  private readonly maxTotalTokens: number | undefined;
   private readonly assertExecutionLease: (() => void) | undefined;
   constructor(private readonly store: EventStore, private readonly provider: ModelProvider,
     private readonly tools: ToolRegistry, options: KernelOptions = {}, private readonly onDelta?: DeltaListener) {
     this.assertExecutionLease = options.assertExecutionLease;
     this.maxSteps = options.maxSteps ?? 8;
     this.maxToolCalls = options.maxToolCalls ?? 16;
+    this.maxContextCharacters = options.maxContextCharacters;
+    this.maxTotalTokens = options.maxTotalTokens;
+    if (this.maxContextCharacters !== undefined && (!Number.isSafeInteger(this.maxContextCharacters) || this.maxContextCharacters < 1)
+      || this.maxTotalTokens !== undefined && (!Number.isSafeInteger(this.maxTotalTokens) || this.maxTotalTokens < 1)) {
+      throw new KernelError('INVALID_BUDGET', 'Context and token budgets must be positive safe integers');
+    }
     if (!Number.isSafeInteger(this.maxSteps) || this.maxSteps < 1 || !Number.isSafeInteger(this.maxToolCalls) || this.maxToolCalls < 0) {
       throw new KernelError('INVALID_BUDGET', 'maxSteps must be positive, maxToolCalls nonnegative');
     }
@@ -174,18 +183,39 @@ export class AgentKernel {
       ctl.state = 'running_model';
       this.verifyExecution(ctl);
       let toolCount = 0;
+      let consumedTokens = 0;
       const seenCallIds = new Set<string>();
       for (let step = 1; step <= this.maxSteps; step++) {
         this.verifyExecution(ctl);
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
-        await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, toolSet: this.tools.visibleTools } });
+        const boundTools = this.tools.snapshot();
+        const stepAdmission = {stepId: `${turnId}/${step}`, toolSetVersion: boundTools.version, tools: boundTools.modelSpecs()};
+        if (this.maxTotalTokens !== undefined && consumedTokens >= this.maxTotalTokens) {
+          throw new KernelError('TOKEN_BUDGET_EXCEEDED', 'Turn token limit exhausted');
+        }
         const messages = await this.context(sessionId);
+        const admission = this.maxContextCharacters === undefined ? undefined
+          : admitContext(messages, stepAdmission, {maxSerializedCharacters: this.maxContextCharacters});
+        await record({ type: 'model.started', turnId,
+          data: { step, providerId: this.provider.id, toolSet: boundTools.visibleTools,
+            toolSetVersion: stepAdmission.toolSetVersion,
+            ...(admission ? {contextSize: admission.serializedCharacters, contextLimit: admission.limit} : {}) } });
         this.verifyExecution(ctl);
         let completed: { message: AssistantMessage; finishReason: 'stop' | 'tool_use' | 'length' } | undefined;
-        for await (const event of this.provider.stream(messages, ctl.controller.signal)) {
+        let usage: ModelTokenUsage | undefined;
+        for await (const event of this.provider.stream(messages, ctl.controller.signal, stepAdmission)) {
           this.verifyExecution(ctl);
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
           if (event.type === 'text_delta') this.onDelta?.(event.text, {sessionId, turnId});
+          if (event.type === 'usage') {
+            const u = event.usage;
+            if (!Number.isSafeInteger(u.inputTokens) || !Number.isSafeInteger(u.outputTokens)
+              || u.inputTokens < 0 || u.outputTokens < 0
+              || (usage !== undefined && (u.inputTokens < usage.inputTokens || u.outputTokens < usage.outputTokens))) {
+              throw new KernelError('INVALID_PROVIDER_USAGE', 'Invalid or decreasing model token usage');
+            }
+            usage = structuredClone(u);
+          }
           if (event.type === 'message_complete') {
             if (completed) throw new KernelError('MULTIPLE_COMPLETIONS', 'Only one final assistant message permitted');
             completed = { message: event.message, finishReason: event.finishReason };
@@ -197,6 +227,18 @@ export class AgentKernel {
         const { message, finishReason } = completed;
         if (message.role !== 'assistant' || !Array.isArray(message.toolCalls) || typeof message.text !== 'string') {
           throw new KernelError('INVALID_ASSISTANT_MESSAGE', 'Invalid model output');
+        }
+        if (usage !== undefined) {
+          await record({type:'model.usage', turnId, data:{step,usage}});
+          const total = usage.inputTokens + usage.outputTokens;
+          if (!Number.isSafeInteger(total) || !Number.isSafeInteger(consumedTokens + total)) {
+            throw new KernelError('INVALID_PROVIDER_USAGE', 'Usage total overflow');
+          }
+          consumedTokens += total;
+        }
+        if (this.maxTotalTokens !== undefined) {
+          if (usage === undefined) throw new KernelError('USAGE_UNAVAILABLE', 'Token budget requires provider-reported usage');
+          if (consumedTokens > this.maxTotalTokens) throw new KernelError('TOKEN_BUDGET_EXCEEDED', 'Token budget exceeded; tool calls withheld');
         }
         if (finishReason === 'length') throw new KernelError('TRUNCATED_MODEL_OUTPUT', 'Unsafe to execute truncated tool calls');
         if (message.toolCalls.length > 0 && finishReason !== 'tool_use') throw new KernelError('INVALID_FINISH_REASON', 'Tool calls require tool_use finish reason');
@@ -229,7 +271,7 @@ export class AgentKernel {
           data: { callId: call.id, name: call.name, step },
         })));
         const results = await executeBatch(
-          message.toolCalls, this.tools, ctl.controller.signal,
+          message.toolCalls, boundTools, ctl.controller.signal,
           () => this.verifyExecution(ctl),
           async receipt => {
             this.verifyExecution(ctl);
