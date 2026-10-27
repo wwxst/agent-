@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
+import { inspectToolAudit } from '../../tool-audit/src/index.js';
 
 interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; fenced?: boolean; }
 export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly assertExecutionLease?: () => void; }
@@ -95,8 +96,9 @@ export class AgentKernel {
           }
         }
       }
-      if (pending) {
-        throw new KernelError('RECOVERY_REQUIRED', 'Unfinished turn requires manual recovery; never replay side effects');
+      const audit = inspectToolAudit(events);
+      if (pending || audit.some(item => item.needsReconciliation)) {
+        throw new KernelError('RECOVERY_REQUIRED', 'Unfinished turn or uncertain tool outcome; do not replay');
       }
       // Install the cursor only after the whole event stream has passed validation.
       this.seq.set(id, events.length);
@@ -162,6 +164,7 @@ export class AgentKernel {
     this.active.set(sessionId, ctl);
     let terminal = false;
     let admitted = false;
+    let unsafeToolState = false;
     const record = (...ds: EventDraft[]) => this.record(sessionId, ...ds);
     try {
       const existing = await this.store.read(sessionId);
@@ -215,9 +218,35 @@ export class AgentKernel {
         for (const call of message.toolCalls) seenCallIds.add(call.id);
         ctl.state = 'running_tools';
         this.verifyExecution(ctl);
-        const results = await executeBatch(message.toolCalls, this.tools, ctl.controller.signal, () => this.verifyExecution(ctl));
+        // All intents become durable BEFORE the first tool can start.
+        // Assistant message already contains full original arguments; intent
+        // points at that call with a stable step and callId.
+        // A storage adapter might commit an intent then fail before ACK.
+        // Treat the result of this append as ambiguous until audited.
+        unsafeToolState = true;
+        await record(...message.toolCalls.map(call => ({
+          type: 'tool.intent' as const, turnId,
+          data: { callId: call.id, name: call.name, step },
+        })));
+        const results = await executeBatch(
+          message.toolCalls, this.tools, ctl.controller.signal,
+          () => this.verifyExecution(ctl),
+          async receipt => {
+            this.verifyExecution(ctl);
+            // Atomic pair: persisted receipt + context-visible result.
+            await record(
+              { type: 'tool.receipt', turnId, data: receipt },
+              { type: 'tool.result', turnId, data: receipt },
+            );
+          },
+        );
         this.verifyExecution(ctl);
-        await record(...results.map(r => ({ type: 'tool.result' as const, turnId, data: r })));
+        // Even an explicit outcome_unknown receipt is not proof of safety:
+        // do not continue the model or append a misleading terminal turn.
+        if (results.some(result => result.outcome === 'outcome_unknown')) {
+          throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Tool execution outcome requires reconciliation');
+        }
+        unsafeToolState = false;
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         ctl.state = 'running_model';
       }
@@ -229,6 +258,11 @@ export class AgentKernel {
         ctl.fenced = true;
         ctl.controller.abort(new KernelError('LEASE_LOST', 'Writer lease lost'));
         throw new KernelError('LEASE_LOST', 'Turn unfinished after losing writer lease');
+      }
+      // Intent is durable but not all receipts are definitively settled.
+      // Writing turn.failed/cancelled here would incorrectly clear recovery.
+      if (unsafeToolState) {
+        throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Unsettled tool intents require reconciliation');
       }
       // Failed admission has no Turn to terminate; never write a phantom terminal event.
       if (!admitted) throw error;
