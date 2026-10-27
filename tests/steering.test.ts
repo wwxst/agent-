@@ -158,8 +158,8 @@ test('M2 steering: malformed consumption without adjacent matching user.message 
     {type:'user.message',turnId:'t',data:{text:'wrong'}},
     {type:'turn.completed',turnId:'t',data:{}},
   ]);
-  assert.throws(()=>inspectSteeringAudit(awaitSync()),{code:'CORRUPT_EVENT_LOG'});
-  function awaitSync(){return [] as never as Awaited<ReturnType<typeof store.read>>;}
+  const events=await store.read('s');
+  assert.throws(()=>inspectSteeringAudit(events),{code:'CORRUPT_EVENT_LOG'});
 });
 
 test('M2 steering: in-process inbox cannot accept a new command with ignored queued steering',async()=>{
