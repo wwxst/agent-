@@ -147,6 +147,9 @@ export class ProcessToolHost {
 
   get pid(): number | undefined { return this.child.pid; }
 
+  /** Wait for OS namespace identity checks, not merely process spawn. */
+  async waitUntilReady():Promise<void>{ await this.ready; }
+
   private failAll(): void {
     if (this.ended) return;
     this.ended = true;
