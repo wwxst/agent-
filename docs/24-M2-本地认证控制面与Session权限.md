@@ -43,7 +43,7 @@ console.log(control.origin); // 仅示例：不要输出 credential
 | `POST /v1/sessions/:id/commands/:commandId/dispatch` | `command.dispatch` | 无请求体 | `{dispatch:{sessionId,commandId,turnId,acceptedSeq,boundSeq,replayed,status}}` |
 | `GET /v1/sessions/:id/commands/:commandId` | `command.inspect` | 无请求体 | 若已绑定返回不含文本的 `dispatch` 元数据；仅接受未绑定则返回 `{command:{commandId,acceptedSeq,status:"accepted"}}` |
 
-**严格区分 Command ACK 与实际执行结果。** 即使 HTTP 断开或命令丢失响应，重复投递必须先读取原持久映射：`dispatchCommand` 自身保证不会第二次调用 Provider/ToolHost。GET 是只读，不获取 Writer Lease，故不需要占用当前运行中 Session 的 Writer 锁；POST 操作则保持既有 Fencing/事务语义。
+**严格区分 Command ACK 与实际执行结果。** 即使 HTTP 断开或命令丢失响应，重复投递必须先读取原持久映射：`dispatchCommand` 自身保证不会第二次调用 Provider/ToolHost。GET 使用 SQLite `readOnly + PRAGMA query_only`，只读且不获取 Writer Lease，故不需要占用当前运行中 Session 的 Writer 锁；POST 操作则保持既有 Fencing/事务语义。
 
 本 API **故意不返回**任何 Command Payload、`DispatchedTurn.text`、模型输出、工具内容、API Secret、DB 异常栈、HTTP 内部错误信息。它适合受信客户端查看 Command 状态，不是全功能 Agent UI 事件订阅。
 
@@ -59,7 +59,7 @@ console.log(control.origin); // 仅示例：不要输出 credential
 
 ## 验证
 
-新增 `tests/control-plane.test.ts` **12 项**（严格 TypeScript、真实 loopback HTTP、无公网请求、FakeProvider + SQLite）：
+新增 `tests/control-plane.test.ts` **13 项**（严格 TypeScript、真实 loopback HTTP、无公网请求、FakeProvider + SQLite）：
 
 1. 经认证先 ACK、后分发，仅执行模型一次，HTTP 不泄漏原始文本和结果；
 2. 无效、缺失、格式不合的 Bearer 被拒，数据库无写入；
@@ -73,8 +73,9 @@ console.log(control.origin); // 仅示例：不要输出 credential
 10. 没有 Cookie/CORS/密钥/Prompt 意外泄露；
 11. 两个同名 Authorization 头被拒，不得绕过身份校验；
 12. 篡改 Command ACK 后的 GET 不返回伪造已接受状态。
+13. `readOnly + query_only` 状态连接只读取 Ledger，不能写入 Inbox。
 
-累计目标 **184 项**（原 172 + 12），Node 22.16.0 与 Node 22.x 双环境 GitHub Actions `npm run check`、`npm test` 以最终 PR CI 为准。
+累计目标 **185 项**（原 172 + 13），Node 22.16.0 与 Node 22.x 双环境 GitHub Actions `npm run check`、`npm test` 以最终 PR CI 为准。
 
 ## 未解决风险与下一批
 
