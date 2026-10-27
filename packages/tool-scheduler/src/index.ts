@@ -1,4 +1,4 @@
-import type { ToolCall, ToolDefinition, ToolResult } from '../../contracts/src/index.js';
+import { KernelError, type ToolCall, type ToolDefinition, type ToolExecutionContext, type ToolResult } from '../../contracts/src/index.js';
 
 export class ToolRegistry {
   private readonly byName = new Map<string, ToolDefinition>();
@@ -34,7 +34,7 @@ export function preflight(calls: readonly ToolCall[], registry: ToolRegistry): r
   });
 }
 
-async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => void): Promise<ToolResult> {
+async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => void, context?: Omit<ToolExecutionContext, 'callId'>): Promise<ToolResult> {
   if (item.immediate) return item.immediate;
   if (!item.definition) throw new Error('preflight invariant broken');
   if (signal.aborted) return errorResult(item.call, 'failed', 'CANCELLED_BEFORE_EXECUTION');
@@ -43,9 +43,13 @@ async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => v
   assertLease?.();
   if (signal.aborted) return errorResult(item.call, 'failed', 'CANCELLED_BEFORE_EXECUTION');
   try {
-    const text = await item.definition.execute(item.input, signal);
+    const text = await item.definition.execute(item.input, signal, context ? { ...context, callId: item.call.id } : undefined);
     return errorResult(item.call, 'succeeded', text);
-  } catch {
+  } catch (error) {
+    if (error instanceof KernelError && error.code === 'LEASE_LOST') throw error;
+    if (error instanceof KernelError && error.code === 'TOOL_OUTCOME_UNKNOWN') {
+      return errorResult(item.call, 'outcome_unknown', 'HOST_EXECUTION_OUTCOME_UNKNOWN');
+    }
     return errorResult(item.call, signal.aborted ? 'outcome_unknown' : 'failed', signal.aborted ? 'CANCELLED_DURING_EXECUTION' : 'TOOL_ERROR');
   }
 }
@@ -54,6 +58,7 @@ async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => v
 export async function executeBatch(
   calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal,
   assertLease?: () => void, onResult?: (result: ToolResult) => Promise<void>,
+  context?: Omit<ToolExecutionContext, 'callId'>,
 ): Promise<readonly ToolResult[]> {
   const prepared = preflight(calls, registry);
   // Every result (including denied/preflight failures) reaches the durable
@@ -71,7 +76,7 @@ export async function executeBatch(
     // Drain all in-flight read calls before propagating lease failure so a
     // runner does not release the claim while parallel reads are still active.
     const settled = await Promise.allSettled(tasks.map(async ({ index, item }) => ({
-      index, value: await commit(await invoke(item, signal, assertLease)),
+      index, value: await commit(await invoke(item, signal, assertLease, context)),
     })));
     for (const item of settled) {
       if (item.status === 'fulfilled') results[item.value.index] = item.value.value;
