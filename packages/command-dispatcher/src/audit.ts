@@ -1,4 +1,5 @@
 import { KernelError, type KernelEvent } from '../../contracts/src/index.js';
+import { createHash } from 'node:crypto';
 
 export interface TurnBinding {
   readonly commandId: string;
@@ -29,7 +30,7 @@ export function inspectTurnBindings(events: readonly KernelEvent[]): readonly Tu
       acks.set(e.data.commandId,{seq:e.seq,kind:e.data.kind});
     } else if(e.type==='command.turn_bound'){
       if(e.turnId!==undefined || !obj(e.data)) corrupt('Binding must be session-scoped');
-      const {commandId,turnId,acceptedSeq}=e.data;
+      const {commandId,turnId,acceptedSeq,textHash}=e.data;
       if(typeof commandId!=='string' || typeof turnId!=='string'
         || !Number.isSafeInteger(acceptedSeq) || ids.has(commandId) || turns.has(turnId))
         corrupt('Invalid or duplicate command binding');
@@ -44,6 +45,8 @@ export function inspectTurnBindings(events: readonly KernelEvent[]): readonly Tu
         || !started || started.seq!==e.seq+3 || started.type!=='turn.started'
         || started.turnId!==turnId || !obj(started.data) || started.data.commandId!==commandId)
         corrupt('Binding and Turn admission must be one adjacent four-event batch');
+      if(typeof textHash!=='string' || textHash!==createHash('sha256').update(user.data.text).digest('hex'))
+        corrupt('Turn admission user text differs from bound fingerprint');
       ids.add(commandId);turns.add(turnId);
       result.push({commandId,turnId,acceptedSeq:acceptedSeq as number,
         boundSeq:e.seq,text:user.data.text});
