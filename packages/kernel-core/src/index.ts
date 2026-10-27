@@ -3,7 +3,8 @@ import { type AssistantMessage, type ContextMessage, type EventDraft, type Event
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
-import { admitContext } from '../../context-engine/src/index.js';
+import { admitContext, type ContextCompactor } from '../../context-engine/src/index.js';
+import { inspectContextCheckpoints, safeCompletedPrefix, hashContextSource } from '../../context-engine/src/checkpoint.js';
 
 interface ActiveTurn {
   turnId: TurnId;
@@ -13,7 +14,7 @@ interface ActiveTurn {
   /** An acknowledged steer MUST be persisted before model context is updated. */
   steering: Array<{text:string;ready:Promise<void>}>;
 }
-export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly maxContextCharacters?: number; readonly maxTotalTokens?: number; readonly assertExecutionLease?: () => void; }
+export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly maxContextCharacters?: number; readonly maxTotalTokens?: number; readonly contextCompactor?: ContextCompactor; readonly assertExecutionLease?: () => void; }
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
 
@@ -28,6 +29,7 @@ export class AgentKernel {
   private readonly maxToolCalls: number;
   private readonly maxContextCharacters: number | undefined;
   private readonly maxTotalTokens: number | undefined;
+  private readonly contextCompactor: ContextCompactor | undefined;
   private readonly assertExecutionLease: (() => void) | undefined;
   constructor(private readonly store: EventStore, private readonly provider: ModelProvider,
     private readonly tools: ToolRegistry, options: KernelOptions = {}, private readonly onDelta?: DeltaListener) {
@@ -36,6 +38,7 @@ export class AgentKernel {
     this.maxToolCalls = options.maxToolCalls ?? 16;
     this.maxContextCharacters = options.maxContextCharacters;
     this.maxTotalTokens = options.maxTotalTokens;
+    this.contextCompactor = options.contextCompactor;
     if (this.maxContextCharacters !== undefined && (!Number.isSafeInteger(this.maxContextCharacters) || this.maxContextCharacters < 1)
       || this.maxTotalTokens !== undefined && (!Number.isSafeInteger(this.maxTotalTokens) || this.maxTotalTokens < 1)) {
       throw new KernelError('INVALID_BUDGET', 'Context and token budgets must be positive safe integers');
@@ -120,6 +123,7 @@ export class AgentKernel {
       }
       const audit = inspectToolAudit(events);
       const steering = inspectSteeringAudit(events);
+      inspectContextCheckpoints(events);
       if (pending || audit.some(item => item.needsReconciliation) || steering.unconsumedSteers > 0) {
         throw new KernelError('RECOVERY_REQUIRED', 'Unfinished turn or uncertain tool outcome; do not replay');
       }
@@ -156,15 +160,63 @@ export class AgentKernel {
     this.assertSession(sessionId);
     return this.store.read(sessionId, afterSeq);
   }
-  private async context(sessionId: SessionId): Promise<ContextMessage[]> {
-    const events = await this.store.read(sessionId);
-    const messages: ContextMessage[] = [];
+  private projectContext(events: readonly KernelEvent[]): ContextMessage[] {
+    const checkpoint = inspectContextCheckpoints(events).at(-1);
+    // The checkpoint is written INSIDE the active Turn, so use throughSeq,
+    // not checkpoint.seq, or this Turn's queued user.message would vanish.
+    const after = checkpoint?.throughSeq ?? 0;
+    const messages: ContextMessage[] = checkpoint ? [{role:'summary',text:checkpoint.summary}] : [];
     for (const event of events) {
+      if (event.seq<=after) continue;
       if (event.type === 'user.message') messages.push({ role: 'user', text: (event.data as { text: string }).text });
       if (event.type === 'assistant.message') messages.push(structuredClone(event.data as AssistantMessage));
       if (event.type === 'tool.result') messages.push({ role: 'tool', result: structuredClone(event.data as ToolResult) });
     }
     return messages;
+  }
+
+  private async context(sessionId: SessionId): Promise<ContextMessage[]> {
+    return this.projectContext(await this.store.read(sessionId));
+  }
+
+  /** May summarize only a contiguous prefix of previously completed Turns. */
+  private async compactOldContext(sessionId: SessionId, ctl: ActiveTurn): Promise<void> {
+    if (!this.contextCompactor) {
+      throw new KernelError('CONTEXT_BUDGET_EXCEEDED','No trusted compactor configured');
+    }
+    this.verifyExecution(ctl);
+    const events = await this.store.read(sessionId);
+    const checkpoints = inspectContextCheckpoints(events);
+    const fromSeq = checkpoints.at(-1)?.seq ?? 0;
+    const currentStart = events.find(e=>e.turnId===ctl.turnId && e.type==='turn.queued')?.seq;
+    if (!currentStart) throw new KernelError('CONTEXT_COMPACTION_UNSAFE','Missing current Turn boundary');
+    const throughSeq = safeCompletedPrefix(events,fromSeq,currentStart);
+    if (throughSeq===undefined) {
+      throw new KernelError('CONTEXT_COMPACTION_UNSAFE','No completed contiguous historical Turn');
+    }
+    const prefix=events.slice(0,throughSeq);
+    if (inspectToolAudit(prefix).some(e=>e.needsReconciliation)
+      || inspectSteeringAudit(prefix).unconsumedSteers!==0) {
+      throw new KernelError('CONTEXT_COMPACTION_UNSAFE','Cannot summarize unresolved tool or steering');
+    }
+    const projection=this.projectContext(prefix);
+    let summary:string;
+    try {
+      summary=await this.contextCompactor.compact(structuredClone(projection),ctl.controller.signal);
+    } catch {
+      this.verifyExecution(ctl);
+      if (this.isCancelling(ctl)) throw new KernelError('CANCELLED','Cancelled during summarization');
+      throw new KernelError('CONTEXT_COMPACTION_FAILED','Trusted compactor rejected historical context');
+    }
+    this.verifyExecution(ctl);
+    if (this.isCancelling(ctl)) throw new KernelError('CANCELLED','Cancelled during summarization');
+    if(typeof summary!=='string' || !summary.trim() || summary.length>32_768){
+      throw new KernelError('CONTEXT_COMPACTION_FAILED','Invalid context summary');
+    }
+    await this.record(sessionId,{type:'context.checkpoint',turnId:ctl.turnId,data:{
+      throughSeq,summary,sourceHash:hashContextSource(events,throughSeq),
+      sourceEventCount:events.filter(e=>e.seq>fromSeq && e.seq<=throughSeq).length,
+    }});
   }
 
   async cancelTurn(sessionId: SessionId, turnId: TurnId): Promise<boolean> {
@@ -242,9 +294,21 @@ export class AgentKernel {
         if (this.maxTotalTokens !== undefined && consumedTokens >= this.maxTotalTokens) {
           throw new KernelError('TOKEN_BUDGET_EXCEEDED', 'Turn token limit exhausted');
         }
-        const messages = await this.context(sessionId);
-        const admission = this.maxContextCharacters === undefined ? undefined
-          : admitContext(messages, stepAdmission, {maxSerializedCharacters: this.maxContextCharacters});
+        let messages = await this.context(sessionId);
+        let admission;
+        if(this.maxContextCharacters!==undefined){
+          try{
+            admission=admitContext(messages,stepAdmission,{maxSerializedCharacters:this.maxContextCharacters});
+          }catch(error){
+            if(!(error instanceof KernelError) || error.code!=='CONTEXT_BUDGET_EXCEEDED') throw error;
+            await this.compactOldContext(sessionId,ctl);
+            // A Steer can be accepted while the trusted summarizer awaits I/O.
+            // It must reach the next model step rather than being left pending.
+            await this.consumeSteering(sessionId,ctl);
+            messages=await this.context(sessionId);
+            admission=admitContext(messages,stepAdmission,{maxSerializedCharacters:this.maxContextCharacters});
+          }
+        }
         await record({ type: 'model.started', turnId,
           data: { step, providerId: this.provider.id, toolSet: boundTools.visibleTools,
             toolSetVersion: stepAdmission.toolSetVersion,

@@ -4,6 +4,7 @@ import { ConflictError, KernelError, type KernelEvent } from '../../contracts/sr
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectContextCheckpoints } from '../../context-engine/src/checkpoint.js';
 
 const MAX_PAYLOAD_BYTES = 64*1024;
 
@@ -85,6 +86,7 @@ function verifyJournal(events:readonly KernelEvent[],sessionId:string):void {
         active=undefined;
     }
   }
+  inspectContextCheckpoints(events);
   if(active || inspectToolAudit(events).some(x=>x.needsReconciliation)
     || inspectSteeringAudit(events).unconsumedSteers>0)
     throw new KernelError('RECOVERY_REQUIRED','Unsettled turn or ToolCall blocks new command admission');

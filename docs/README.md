@@ -30,6 +30,7 @@
 | M1-19 | [旧 PR #2 Provider 和 CLI 移植](19-M1-旧PR2-真实Provider和CLI整合.md) | OpenAI/Anthropic 流式、工具快照、Usage/字符准入与受限 CLI；未实测计费模型 |
 | M2-20 | [Command Inbox 事务 ACK 与幂等](20-M2-Command-Inbox-事务ACK与幂等.md) | Writer Lease/Fencing、可重复 ACK、同 ID 不同内容拒绝、无自动执行 |
 | M2-21 | [Steering 活动 Turn 指令与审计](21-M2-Steering-活动Turn指令与审计.md) | 持久 FIFO/Step 消费、受租约绑定控制、未决 Steering 的恢复拒绝 |
+| M2-22 | [Context Checkpoint 可信摘要投影](22-M2-Context-Checkpoint-可信摘要投影.md) | 旧 Turn 可验证摘要、原始日志不可变、Steering/租约/故障停机保护 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |

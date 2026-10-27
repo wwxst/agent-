@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { KernelError, type KernelEvent, type KernelEventType, type ToolResult } from '../../contracts/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectContextCheckpoints } from '../../context-engine/src/checkpoint.js';
 import type { HostLedgerEntry } from '../../tool-host/src/ledger.js';
 
 export type ReconciliationStatus =
@@ -189,6 +190,7 @@ export function reconcileSnapshot(
   const pendingTurnId = journalState(events, sessionId);
   const journal = inspectToolAudit(events);
   const steering = inspectSteeringAudit(events);
+  inspectContextCheckpoints(events);
   const receipts = new Map<string, Receipt>();
   for (const event of events) {
     if (event.type !== 'tool.receipt') continue;
