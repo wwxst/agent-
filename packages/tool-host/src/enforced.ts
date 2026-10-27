@@ -1,4 +1,4 @@
-import {readFileSync,realpathSync,statSync} from 'node:fs';
+import {readFileSync,realpathSync,statSync,accessSync,constants,statfsSync} from 'node:fs';
 import {relative,resolve,isAbsolute,dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import {ProcessToolHost} from './index.js';
@@ -123,6 +123,87 @@ export function assertInheritedCgroupBudget(limits:AttestedCgroupLimits,budget:C
   if(limits.memoryBytes>budget.maxMemoryBytes || limits.pids>budget.maxPids
     ||limits.cpuMillicores>budget.maxCpuMillicores)
     denied('Cgroup is not bounded by required aggregate limits');
+}
+
+/**
+ * A trusted supervisor pre-creates an EMPTY LEAF cgroup with DIRECT finite
+ * CPU/memory/PID ceilings. Never accept a parent/ancestor limit as a worker
+ * budget, and never kill or overwrite a populated cgroup.
+ */
+export function assertDedicatedCgroupReady(
+  parentRelativePath:string,leafRelativePath:string,budget:CgroupBudget,
+  mountRoot:string='/sys/fs/cgroup',
+):AttestedCgroupLimits {
+  validateBudget(budget);
+  const parent=readUnifiedCgroupPath('0::'+parentRelativePath);
+  const leaf=readUnifiedCgroupPath('0::'+leafRelativePath);
+  if(parent==='/' ? leaf==='/' : !leaf.startsWith(parent+'/'))
+    denied('Worker must be in a distinct descendant of the controller cgroup');
+  let root:string,leafDir:string;
+  try {
+    root=realpathSync(mountRoot);
+    leafDir=realpathSync(resolve(root,'.'+leaf));
+    if(!within(root,leafDir)||!statSync(leafDir).isDirectory())
+      return unavailable('Worker cgroup escapes trusted root');
+  }catch{return unavailable('Dedicated cgroup leaf unavailable');}
+  // Only the leaf's OWN control files matter for a dedicated budget.
+  const own=inspectCgroupV2From('0::/',leafDir);
+  assertInheritedCgroupBudget(own,budget);
+  try {
+    const populated=readFileSync(resolve(leafDir,'cgroup.events'),'utf8');
+    if(!/^populated 0$/m.test(populated))
+      denied('Dedicated cgroup has existing processes or descendants');
+    if(readFileSync(resolve(leafDir,'cgroup.procs'),'utf8').trim()!=='')
+      denied('Dedicated cgroup is not empty');
+    accessSync(resolve(leafDir,'cgroup.procs'),constants.W_OK);
+    accessSync(resolve(leafDir,'cgroup.kill'),constants.W_OK);
+  }catch(error){
+    if(error instanceof KernelError)throw error;
+    return unavailable('Cgroup migration or kill privilege not delegated');
+  }
+  return {...own,relativePath:leaf};
+}
+
+export interface DedicatedToolHostOptions extends EnforcedToolHostOptions {
+  /** Pre-created EMPTY leaf strictly below this process's cgroup. */
+  readonly dedicatedCgroupRelativePath:string;
+}
+
+/**
+ * This entry never migrates the controller. A trusted in-repo launch helper
+ * migrates ITSELF before starting bwrap. cgroup.kill ends the whole subtree.
+ * No privileged cgroup setup is silently attempted.
+ */
+export async function startDedicatedToolHost(options:DedicatedToolHostOptions):Promise<{
+  readonly host:ProcessToolHost;
+  readonly limits:AttestedCgroupLimits;
+}>{
+  if(!options||!options.sandbox||!options.requiredBudget
+    ||typeof options.databasePath!=='string'||!options.databasePath.trim()
+    ||typeof options.dedicatedCgroupRelativePath!=='string')
+    denied('Dedicated cgroup, sandbox and budget are mandatory');
+  validateBudget(options.requiredBudget);
+  if(process.platform!=='linux')return unavailable('Linux-only dedicated Tool Host');
+  const root='/sys/fs/cgroup';
+  try{
+    if(statfsSync(root).type!==0x63677270)return unavailable('Unified cgroup v2 filesystem required');
+  }catch{return unavailable('Cgroup v2 filesystem inaccessible');}
+  const parent=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
+  const limits=assertDedicatedCgroupReady(parent,options.dedicatedCgroupRelativePath,
+    options.requiredBudget);
+  const sandbox:LinuxBubblewrapSandbox={...options.sandbox,
+    dedicatedCgroup:{relativePath:limits.relativePath,budget:options.requiredBudget}};
+  const host=new ProcessToolHost(options.databasePath,options.timeoutMs??4000,sandbox);
+  try{
+    await host.waitUntilReady();
+    const pid=host.pid;
+    if(!pid || !Number.isSafeInteger(pid))return unavailable('Host launcher PID unavailable');
+    const current=readUnifiedCgroupPath(readFileSync('/proc/'+pid+'/cgroup','utf8'));
+    if(current!==limits.relativePath)return unavailable('Dedicated launcher did not join the correct cgroup');
+    const leafDir=resolve(root,'.'+limits.relativePath);
+    assertInheritedCgroupBudget(inspectCgroupV2From('0::/',leafDir),options.requiredBudget);
+    return {host,limits};
+  }catch(error){host.close();throw error;}
 }
 
 /** Read the CURRENT process's kernel-enforced aggregate cgroup quota. */

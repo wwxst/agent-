@@ -61,6 +61,7 @@
 31. [M3 Linux Tool Host Bubblewrap 隔离](docs/27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md)：显式启用的 Linux user/mount/PID/network namespaces、只读代码与专用 SQLite 写目录、真实隔离探针；不支持即拒绝。
 32. [M3 沙箱启动可信根与临时空间预算](docs/28-M3-沙箱启动可信根与私有临时空间预算.md)：拒绝可写目录中的伪装 launcher、私有 /tmp 容量硬上限和 Worker READY 启动超时。
 33. [M3 强制沙箱入口与继承 cgroup v2 额度](docs/29-M3-强制沙箱入口与继承cgroup资源额度.md)：受信部署入口必须同时具备 Bubblewrap、有效 Linux cgroup v2 有限额度与隔离就绪证明；共享额度非专用配额。
+34. [M3 独立 Worker cgroup 与整组清理](docs/30-M3-独立Worker-cgroup与整组终止边界.md)：受信 Supervisor 预设空独立叶子组，迁组后启动 Bubblewrap，cgroup.kill 整组终止；真机迁组正向验证待补。
 
 附加约束：
 
@@ -98,11 +99,12 @@
 - **M2 执行期间授权撤销（已合并 main）**：HTTP 持久身份凭据版本绑定执行 Guard，Writer Lease 心跳重检授权，模型/工具继续执行前拒绝旧版本；失效后保持未决 Turn 且不盲目重放。新增 6 项集成/故障测试。
 - **M3 Linux Bubblewrap Host（已合并 main）**：新增可选的 OS namespace 隔离 Worker、只读 runtime/code 与专用 SQLite RW 挂载、独立有界 JSON-line IPC、启动时 namespace 身份校验和绝不降级回退；新增 8 项含真实 Linux Worker 和私有文件/网络隔离验证的测试。
 - **M3 沙箱启动强化（已合并 main）**：仅允许来自显式 RO runtime 的 bwrap 可执行文件；隔离 Worker 启动未 READY 超时则拒绝，不回退普通 Host；/tmp 私有 tmpfs 配置 1–128 MiB 硬容量。新增 4 项测试。
-- **M3 安全部署入口（本轮分支）**：新增 `startEnforcedToolHost`，要求 Linux Bubblewrap 以及已由宿主内核强制的 CPU/内存/PID cgroup v2 共享额度，验证命名空间 READY 和 launcher cgroup 归属；不满足条件坚决拒绝，不提供默认降级。新增 11 项测试。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 227 项；当前 GH Runner 无有限全维度 cgroup 配额，相关真实配额正向验证会跳过，其余单测和已有实际 Bubblewrap 测试运行。
-- **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup/seccomp/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M3 安全部署入口（已合并 main）**：新增 `startEnforcedToolHost`，要求 Linux Bubblewrap 以及已由宿主内核强制的 CPU/内存/PID cgroup v2 共享额度，验证命名空间 READY 和 launcher cgroup 归属；不满足条件坚决拒绝，不提供默认降级。新增 11 项测试。
+- **M3 Worker 独立 cgroup（本轮分支）**：新增 `startDedicatedToolHost`、受信 `cgroup-launcher` 先迁组再启动 Bubblewrap、独立叶子直接有限额度和空组强制检查、整组 `cgroup.kill` 退出与清理故障报告；新增 10 项策略/真实拒绝测试。尚无真实成功委派 cgroup 环境的正向验收。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 237 项；基线已有 1 项真实继承 cgroup 的测试条件跳过，专用 cgroup 成功迁组需有委派的受信 Linux Runner。
+- **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/seccomp/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。控制面已具备可选择启用的持久 Principal 凭据、轮换/撤销和授权决策审计，但不提供公开管理接口，也不能终止已授权并在途的执行。持久模式现已将 HTTP 分发的凭据版本绑定到执行边界与心跳重新校验；但无法强制停止忽略取消的外部工具，也不能撤销已发生副作用。本轮已提供显式可选的 Linux Bubblewrap 命名空间隔离，不表示其他工具调用或默认 Host 自动受限。本轮补上沙箱启动可信根、私有 /tmp 容量预算与启动超时；已提供可选择使用的强制部署入口，可校验调用进程继承的 CPU/内存/PID cgroup v2 有限额度并禁止不安全启动；但是它不是独占 Worker cgroup。下一步应由受信 supervisor 分配独立 Worker cgroup、验证持续配额与可信 Host 身份，再建设认证高风险工具审批和可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。控制面已具备可选择启用的持久 Principal 凭据、轮换/撤销和授权决策审计，但不提供公开管理接口，也不能终止已授权并在途的执行。持久模式现已将 HTTP 分发的凭据版本绑定到执行边界与心跳重新校验；但无法强制停止忽略取消的外部工具，也不能撤销已发生副作用。本轮已提供显式可选的 Linux Bubblewrap 命名空间隔离，不表示其他工具调用或默认 Host 自动受限。本轮补上沙箱启动可信根、私有 /tmp 容量预算与启动超时；已提供可选择使用的强制部署入口，可校验调用进程继承的 CPU/内存/PID cgroup v2 有限额度并禁止不安全启动；但是它不是独占 Worker cgroup。当前新增由受信 supervisor **预先分配**独立 Worker cgroup 后的启动路径，仍需要真实可委派环境验证实际迁组、持续配额与可信 Host 身份，再建设认证高风险工具审批和可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
