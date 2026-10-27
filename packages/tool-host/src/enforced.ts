@@ -1,4 +1,4 @@
-import {readFileSync,realpathSync,statSync} from 'node:fs';
+import {readFileSync,realpathSync,statSync,accessSync,constants} from 'node:fs';
 import {relative,resolve,isAbsolute,dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import {ProcessToolHost} from './index.js';
@@ -123,6 +123,45 @@ export function assertInheritedCgroupBudget(limits:AttestedCgroupLimits,budget:C
   if(limits.memoryBytes>budget.maxMemoryBytes || limits.pids>budget.maxPids
     ||limits.cpuMillicores>budget.maxCpuMillicores)
     denied('Cgroup is not bounded by required aggregate limits');
+}
+
+/**
+ * A trusted supervisor pre-creates an EMPTY LEAF cgroup with DIRECT finite
+ * CPU/memory/PID ceilings. Never accept a parent/ancestor limit as a worker
+ * budget, and never kill or overwrite a populated cgroup.
+ */
+export function assertDedicatedCgroupReady(
+  parentRelativePath:string,leafRelativePath:string,budget:CgroupBudget,
+  mountRoot:string='/sys/fs/cgroup',
+):AttestedCgroupLimits {
+  validateBudget(budget);
+  const parent=readUnifiedCgroupPath('0::'+parentRelativePath);
+  const leaf=readUnifiedCgroupPath('0::'+leafRelativePath);
+  if(parent==='/' ? leaf==='/' : !leaf.startsWith(parent+'/'))
+    denied('Worker must be in a distinct descendant of the controller cgroup');
+  let root:string,leafDir:string;
+  try {
+    root=realpathSync(mountRoot);
+    leafDir=realpathSync(resolve(root,'.'+leaf));
+    if(!within(root,leafDir)||!statSync(leafDir).isDirectory())
+      return unavailable('Worker cgroup escapes trusted root');
+  }catch{return unavailable('Dedicated cgroup leaf unavailable');}
+  // Only the leaf's OWN control files matter for a dedicated budget.
+  const own=inspectCgroupV2From('0::/',leafDir);
+  assertInheritedCgroupBudget(own,budget);
+  try {
+    const populated=readFileSync(resolve(leafDir,'cgroup.events'),'utf8');
+    if(!/^populated 0$/m.test(populated))
+      denied('Dedicated cgroup has existing processes or descendants');
+    if(readFileSync(resolve(leafDir,'cgroup.procs'),'utf8').trim()!=='')
+      denied('Dedicated cgroup is not empty');
+    accessSync(resolve(leafDir,'cgroup.procs'),constants.W_OK);
+    accessSync(resolve(leafDir,'cgroup.kill'),constants.W_OK);
+  }catch(error){
+    if(error instanceof KernelError)throw error;
+    return unavailable('Cgroup migration or kill privilege not delegated');
+  }
+  return {...own,relativePath:leaf};
 }
 
 /** Read the CURRENT process's kernel-enforced aggregate cgroup quota. */
