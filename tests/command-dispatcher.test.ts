@@ -160,11 +160,13 @@ test('M2 dispatcher: bind committed then process SIGKILL before model start rema
     const runner=new ManagedSessionRunner(tmp.path,fake,new ToolRegistry());
     // Another writer may still own the short-lived lease until expiry.
     // Release it for the test; this is not a recovery authorization.
-    const leases=new SqliteWriterLeaseStore(tmp.path);
+    const db=new DatabaseSync(tmp.path);
     try{
-      const old=leases.inspect('session');
-      if(old && old.ownerId==='crashed-owner')leases.release(old);
-    }finally{leases.close();}
+      // Explicit crash fixture: force the orphaned test lease to expire;
+      // never synthesize a current owner's lease token.
+      db.prepare("UPDATE session_writer_leases SET expires_at_ms=0 WHERE session_id=? AND owner_id=?")
+        .run('session','crashed-owner');
+    }finally{db.close();}
     const response=await runner.dispatchCommand('session','command-1');
     assert.equal(response.dispatch.turnId,bound?.turnId);
     assert.equal(response.dispatch.status,'admitted');
