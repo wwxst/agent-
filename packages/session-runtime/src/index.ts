@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { KernelError, type KernelEvent, type ModelProvider, type SessionId, type TurnId } from '../../contracts/src/index.js';
 import { AgentKernel, type DeltaListener, type KernelOptions, type TurnResult } from '../../kernel-core/src/index.js';
 import { SqliteEventStore } from '../../event-store-sqlite/src/index.js';
-import { SqliteWriterLeaseStore } from '../../session-leases-sqlite/src/index.js';
+import { SqliteWriterLeaseStore, type WriterLease } from '../../session-leases-sqlite/src/index.js';
 import type { ToolRegistry } from '../../tool-scheduler/src/index.js';
 
 export interface ManagedSessionOptions {
@@ -30,7 +30,7 @@ export class ManagedSessionRunner {
   constructor(
     private readonly databasePath: string,
     private readonly provider: ModelProvider,
-    private readonly tools: ToolRegistry,
+    private readonly tools: ToolRegistry | ((lease: WriterLease) => ToolRegistry),
     private readonly options: ManagedSessionOptions = {},
     private readonly onDelta?: DeltaListener,
   ) {
@@ -79,7 +79,8 @@ export class ManagedSessionRunner {
         ...(this.options.maxSteps === undefined ? {} : { maxSteps: this.options.maxSteps }),
         ...(this.options.maxToolCalls === undefined ? {} : { maxToolCalls: this.options.maxToolCalls }),
       };
-      kernel = new AgentKernel(journal, this.provider, this.tools, kernelOptions, this.onDelta);
+      const tools = typeof this.tools === 'function' ? this.tools(claim) : this.tools;
+      kernel = new AgentKernel(journal, this.provider, tools, kernelOptions, this.onDelta);
       // Heartbeat is synchronous, so timer ticks never overlap each other.
       // Timer stalls can still let the claim expire; boundary checks fail closed.
       heartbeat = setInterval(() => {
