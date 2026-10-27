@@ -33,8 +33,8 @@ export interface ReconciliationReport {
   readonly pendingTurnId?: string;
   readonly calls: readonly ReconciliationCall[];
   readonly requiresManualReview: boolean;
-  /** This observation does not authorize automatic recovery or replay. */
-  readonly journalCanReopen: boolean;
+  /** Cross-ledger evidence only; this is NOT permission to resume or replay. */
+  readonly fullyVerified: boolean;
 }
 
 interface Receipt {
@@ -224,6 +224,6 @@ export function reconcileSnapshot(
     sessionId, lastSeq: events.length,
     ...(pendingTurnId === undefined ? {} : { pendingTurnId }),
     calls, requiresManualReview,
-    journalCanReopen: !requiresManualReview,
+    fullyVerified: !requiresManualReview,
   };
 }
