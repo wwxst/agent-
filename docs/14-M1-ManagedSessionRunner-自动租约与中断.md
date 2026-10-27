@@ -59,15 +59,16 @@ ManagedSessionRunner.runTurn()
 
 ## 已新增的自动化测试
 
-`tests/managed-session.test.ts` 新增 5 项：
+`tests/managed-session.test.ts` 新增 6 项：
 
 1. 模型时间长于短 TTL，周期续租仍保证完整 Turn 且执行结束释放租约，可连续运行两轮。
 2. 两个 Runner 在同一 SQLite 文件竞争同一 Session，后者得到 `SESSION_BUSY`；前者结束后后者才可执行。
 3. 模拟管理者吊销活跃租约并向新 owner 发放较大 Fencing Token：旧执行检测到失权、中断；即便模型忽略 AbortSignal 并晚返回，也不执行后续工具、不伪造终态，新进程重开遇 `RECOVERY_REQUIRED`。
 4. 未知 Session 不会被 `runTurn` 默默创建；非法租约配置拒绝。
 5. 工具独占屏障之后再次验证租约，旧 owner 不能执行后一条 ToolCall。
+6. 并发只读工具中有一项租约检测失败时，等其它已启动工具全部结束后才向上抛错，不会提前释放 Runner 的 claim。
 
-本轮连同历史测试累计 41 项；类型检查/测试运行于 Node 22.16.0 与 Node 22.x，最终状态以具体 GitHub Actions 记录为准。
+本轮连同历史测试累计 42 项；类型检查/测试运行于 Node 22.16.0 与 Node 22.x，最终状态以具体 GitHub Actions 记录为准。
 
 ## 明确未完成和限制
 
