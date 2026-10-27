@@ -161,3 +161,17 @@ test('M3 dedicated: trusted helper refuses to spawn a command before joining a r
     assert.equal(existsSync(marker),false);
   }finally{f.done();}
 });
+
+
+test('M3 cgroup: fractional CPU quota above budget cannot be truncated into approval',()=>{
+  const f=fixture();
+  try{
+    // 250.01 millicores must be rounded UP to 251, not down to 250.
+    writeFileSync(join(f.worker,'cpu.max'),'25001 100000');
+    assert.throws(()=>assertDedicatedCgroupReady('/supervisor',leaf,budget,f.root),{
+      code:'HOST_CGROUP_BUDGET_UNSATISFIED',
+    });
+    writeFileSync(join(f.worker,'cpu.max'),'25000 100000');
+    assert.equal(assertDedicatedCgroupReady('/supervisor',leaf,budget,f.root).cpuMillicores,250);
+  }finally{f.done();}
+});
