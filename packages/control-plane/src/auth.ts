@@ -2,6 +2,9 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { KernelError } from '../../contracts/src/index.js';
 
 export type ControlPermission = 'command.accept' | 'command.dispatch' | 'command.inspect';
+export interface ControlAuthorizer {
+  authorize(header:unknown,sessionId:string,permission:ControlPermission):string;
+}
 export interface ControlPrincipalConfig {
   readonly principalId: string;
   /** 32 random bytes, encoded with base64url. Configure out of band; never log. */

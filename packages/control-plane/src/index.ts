@@ -3,7 +3,7 @@ import { KernelError, ConflictError } from '../../contracts/src/index.js';
 import type { ManagedSessionRunner } from '../../session-runtime/src/index.js';
 import { SqliteCommandDispatcher } from '../../command-dispatcher/src/index.js';
 import { SqliteCommandInbox } from '../../command-inbox/src/index.js';
-import { ControlKeyring, type ControlPrincipalConfig, type ControlPermission } from './auth.js';
+import { ControlKeyring, type ControlAuthorizer, type ControlPrincipalConfig, type ControlPermission } from './auth.js';
 
 const MAX_BODY = 70*1024;
 const ROUTE=/^\/v1\/sessions\/([A-Za-z0-9_-]{1,128})\/commands(?:\/([A-Za-z0-9_-]{1,128})(\/dispatch)?)?$/;
@@ -11,7 +11,10 @@ const ROUTE=/^\/v1\/sessions\/([A-Za-z0-9_-]{1,128})\/commands(?:\/([A-Za-z0-9_-
 export interface ControlServerOptions {
   readonly runner: ManagedSessionRunner;
   readonly databasePath: string;
-  readonly principals: readonly ControlPrincipalConfig[];
+  /** Legacy ephemeral keyring; mutually exclusive with durable authority. */
+  readonly principals?: readonly ControlPrincipalConfig[];
+  /** Explicitly seeded and managed out-of-band, persisted across restarts. */
+  readonly authority?: ControlAuthorizer;
   /** 0 selects an ephemeral port. Always binds IPv4 loopback only. */
   readonly port?: number;
 }
@@ -97,7 +100,9 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
   const port=options.port??0;
   if(!Number.isInteger(port)||port<0||port>65535)
     throw new KernelError('INVALID_CONTROL_CONFIG','Invalid loopback port');
-  const auth=new ControlKeyring(options.principals);
+  if((options.principals===undefined)===(options.authority===undefined))
+    throw new KernelError('INVALID_CONTROL_CONFIG','Choose either principals or authority, not both');
+  const auth:ControlAuthorizer=options.authority??new ControlKeyring(options.principals!);
   // Schema bootstrap happens exactly once before listening, never in GET.
   const bootstrapInbox=new SqliteCommandInbox(options.databasePath);
   try {
@@ -119,7 +124,12 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
       else if(req.method==='GET' && commandId && !dispatch)permission='command.inspect';
       else return send(res,405,{error:'METHOD_NOT_ALLOWED'});
       const authHeaders=req.rawHeaders.filter((value,i)=>i%2===0 && value.toLowerCase()==='authorization');
-      if(authHeaders.length!==1)throw new KernelError('UNAUTHENTICATED','Exactly one credential required');
+      // In durable mode even an invalid header attempt is audited before
+      // an application operation can be reached; never expose a raw secret.
+      if(authHeaders.length!==1){
+        auth.authorize(null,sessionId,permission);
+        throw new KernelError('UNAUTHENTICATED','Exactly one credential required');
+      }
       auth.authorize(req.headers.authorization,sessionId,permission);
 
       if(req.method==='GET'){
