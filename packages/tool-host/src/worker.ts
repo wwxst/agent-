@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { readlinkSync } from 'node:fs';
 import { KernelError } from '../../contracts/src/index.js';
 import { HostExecutionLedger, type HostCall } from './ledger.js';
 
@@ -147,4 +148,10 @@ if(stdioMode){
   process.on('message',receive);
   process.on('disconnect',disconnect);
 }
-reply({type:'ready'});
+const namespaces=stdioMode ? {
+  mount:readlinkSync('/proc/self/ns/mnt'),
+  network:readlinkSync('/proc/self/ns/net'),
+  pid:readlinkSync('/proc/self/ns/pid'),
+  user:readlinkSync('/proc/self/ns/user'),
+}:undefined;
+reply({type:'ready',...(namespaces?{namespaces}:{})});
