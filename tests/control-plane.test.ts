@@ -293,3 +293,28 @@ test('M2 control: status refuses a forged Inbox row without matching accepted jo
     assert.equal(f.model.requests.length,0);
   }finally{await f.close();}
 });
+
+
+test('M2 control: query-only status handles work while rejecting Inbox mutation attempts',async()=>{
+  const f=await fixture();
+  try{
+    const {SqliteCommandInbox}=await import('../packages/command-inbox/src/index.js');
+    const {SqliteCommandDispatcher}=await import('../packages/command-dispatcher/src/index.js');
+    const {SqliteWriterLeaseStore}=await import('../packages/session-leases-sqlite/src/index.js');
+    const leases=new SqliteWriterLeaseStore(f.db.path);
+    const claim=leases.acquire('sessA','query_only_test',5000);assert.ok(claim);
+    const readInbox=new SqliteCommandInbox(f.db.path,{readOnly:true});
+    const readDispatch=new SqliteCommandDispatcher(f.db.path,{readOnly:true});
+    try{
+      assert.equal(readInbox.inspectAccepted('sessA','cmdA'),undefined);
+      assert.equal(readDispatch.inspect('sessA','cmdA'),undefined);
+      assert.throws(()=>readInbox.accept({
+        lease:claim,commandId:'cmdA',kind:'turn.run',
+        expectedSeq:1,payload:{text:'this must not persist'},
+      }));
+      const journal=new SqliteEventStore(f.db.path);
+      try{assert.equal((await journal.read('sessA')).length,1);}
+      finally{journal.close();}
+    }finally{readDispatch.close();readInbox.close();leases.release(claim);leases.close();}
+  }finally{await f.close();}
+});
