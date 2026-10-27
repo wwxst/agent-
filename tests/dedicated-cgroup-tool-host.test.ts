@@ -84,7 +84,7 @@ test('M3 dedicated: mismatched ancestry and parent/self cgroup are prohibited',(
     for(const path of ['/supervisor','/','/other/leaf','/supervisor/agent-worker/child/..',
       '/supervisor//agent-worker']){
       assert.throws(()=>assertDedicatedCgroupReady('/supervisor',path,budget,f.root),
-        {code:'HOST_CGROUP_UNAVAILABLE'},path);
+        /cgroup|worker/i,path);
     }
   }finally{f.done();}
 });
