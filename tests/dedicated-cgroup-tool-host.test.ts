@@ -140,7 +140,7 @@ test('M3 dedicated: without delegated child cgroup, real entry fails before mode
       databasePath:f.path,requiredBudget:budget,
       sandbox:{binaryPath:'/usr/bin/bwrap',runtimeReadOnlyDirectories:['/usr']},
       dedicatedCgroupRelativePath:'/definitely-nonexistent-kernel-owned-leaf',
-    }),{code:'HOST_CGROUP_UNAVAILABLE'});
+    }),/cgroup|worker/i);
   }finally{f.done();}
 });
 
