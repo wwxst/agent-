@@ -266,7 +266,8 @@ export class AgentKernel {
   }
 
   /** A complete user Turn contains one or more model Steps. Rejects concurrent turns in M0. */
-  async runTurn(sessionId: SessionId, text: string, turnId: TurnId = randomUUID()): Promise<TurnResult> {
+  async runTurn(sessionId: SessionId, text: string, turnId: TurnId = randomUUID(),
+    dispatch?: Readonly<{commandId: string; boundSeq: number}>): Promise<TurnResult> {
     this.assertSession(sessionId);
     if (!text.trim()) throw new KernelError('EMPTY_MESSAGE', 'Message must be nonempty');
     if (!turnId.trim() || this.active.has(sessionId)) throw new KernelError('TURN_BUSY', 'Turn is already active');
@@ -279,8 +280,21 @@ export class AgentKernel {
     const record = (...ds: EventDraft[]) => this.record(sessionId, ...ds);
     try {
       const existing = await this.store.read(sessionId);
-      if (existing.some(e => e.turnId === turnId)) throw new KernelError('DUPLICATE_TURN', turnId);
-      await record({ type: 'turn.queued', turnId, data: {} }, { type: 'user.message', turnId, data: { text } }, { type: 'turn.started', turnId, data: {} });
+      if(dispatch){
+        const binding=inspectTurnBindings(existing).find(b=>b.commandId===dispatch.commandId);
+        if(!binding || binding.turnId!==turnId || binding.boundSeq!==dispatch.boundSeq
+          || binding.text!==text || existing.length!==binding.boundSeq+3
+          || (this.seq.get(sessionId)??0)!==binding.boundSeq-1){
+          throw new KernelError('DISPATCH_NOT_FRESH','Only first fenced owner can start a newly bound Turn');
+        }
+        // Binding+Turn admission is already one durable transaction. Do not
+        // create a second queued/user/started batch or replay a prior model step.
+        this.verifyExecution(ctl);
+        this.seq.set(sessionId,existing.length);
+      }else{
+        if (existing.some(e => e.turnId === turnId)) throw new KernelError('DUPLICATE_TURN', turnId);
+        await record({ type: 'turn.queued', turnId, data: {} }, { type: 'user.message', turnId, data: { text } }, { type: 'turn.started', turnId, data: {} });
+      }
       admitted = true;
       ctl.state = 'running_model';
       this.verifyExecution(ctl);
