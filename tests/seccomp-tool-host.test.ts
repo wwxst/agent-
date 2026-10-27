@@ -15,6 +15,7 @@ import {
 } from '../packages/tool-host/src/seccomp.js';
 import {buildBubblewrapLaunch,type LinuxBubblewrapSandbox} from '../packages/tool-host/src/sandbox.js';
 import {ProcessToolHost} from '../packages/tool-host/src/index.js';
+import {assertWorkerSeccompInstalled} from '../packages/tool-host/src/host-attestation.js';
 import {ManagedSessionRunner} from '../packages/session-runtime/src/index.js';
 import {SqliteEventStore} from '../packages/event-store-sqlite/src/index.js';
 import {HostExecutionLedger} from '../packages/tool-host/src/ledger.js';
@@ -168,6 +169,9 @@ test('M3 seccomp: real seccomp-filtered Worker can still persist Host ledger and
   try{
     await host.waitUntilReady();
     assert.ok(host.verifiedWorkerPid);
+    assert.doesNotThrow(()=>assertWorkerSeccompInstalled(host.verifiedWorkerPid!));
+    const status=readFileSync('/proc/'+host.verifiedWorkerPid+'/status','utf8');
+    assert.match(status,/^Seccomp:\s*2\s*$/m);
     const provider=new FakeProvider([[
       {type:'message_complete',message:{role:'assistant',text:'',toolCalls:[
         {id:'call',name:'read.echo',arguments:{text:'seccomp-proof'}},
@@ -193,4 +197,12 @@ test('M3 seccomp: failing to provide filter fd cannot initialize a strict sandbo
     });
     assert.notEqual(result.status,0,'bwrap must reject an unavailable seccomp fd 3');
   }finally{f.done();}
+});
+
+test('M3 seccomp: self PID or nonexistent PID cannot impersonate filtered sandbox',()=>{
+  if(!supported())return;
+  assert.throws(()=>assertWorkerSeccompInstalled(process.pid),
+    {code:'HOST_IDENTITY_UNVERIFIED'});
+  assert.throws(()=>assertWorkerSeccompInstalled(2147483647),
+    {code:'HOST_IDENTITY_UNVERIFIED'});
 });
