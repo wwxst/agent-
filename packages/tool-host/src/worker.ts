@@ -10,22 +10,21 @@ import { HostExecutionLedger, type HostCall } from './ledger.js';
 if (!process.send || !process.argv[2]) {
   throw new Error('Tool Host worker must be forked with an IPC channel and database path');
 }
-// Parent may be creating session/lease tables at the same time this worker
-// starts. Retry *only* SQLite busy initialization rather than silently
-// exiting and losing the IPC request. Calls are queued until READY.
-let ledger: HostExecutionLedger | undefined;
-for (let attempt = 0; attempt < 16; attempt++) {
-  try {
-    ledger = new HostExecutionLedger(process.argv[2]);
-    break;
-  } catch (error) {
-    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    if (!code.startsWith('SQLITE_BUSY') || attempt === 15) throw error;
-    await sleep(40);
+// Parent may create lease tables while this process starts: retry only
+// SQLITE_BUSY. IPC messages are buffered until the READY handshake.
+async function openLedger(path: string): Promise<HostExecutionLedger> {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    try {
+      return new HostExecutionLedger(path);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+      if (!code.startsWith('SQLITE_BUSY') || attempt === 15) throw error;
+      await sleep(40);
+    }
   }
+  throw new Error('Host ledger initialization exhausted retries');
 }
-const readyLedger = ledger;
-if (!readyLedger) throw new Error('Unable to initialize Host execution ledger');
+const readyLedger: HostExecutionLedger = await openLedger(process.argv[2]);
 
 const isRecord = (x: unknown): x is Record<string, unknown> =>
   typeof x === 'object' && x !== null && !Array.isArray(x);
