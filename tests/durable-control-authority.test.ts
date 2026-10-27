@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -224,4 +225,32 @@ test('M2 durable authority: server rejects both legacy and durable configured si
       databasePath:t.path,runner,
     }),{code:'INVALID_CONTROL_CONFIG'});
   }finally{authority.close();t.done();}
+});
+
+
+test('M2 durable authority: SIGKILL immediately after committed revoke leaves token permanently denied',()=>{
+  const t=temporary(),key=secret(),a=new SqliteControlAuthority(t.path);
+  try{
+    a.bootstrap([principal(key)]);
+    a.close();
+    const url=new URL('../packages/control-plane/src/authority.js',import.meta.url).href;
+    const script=`
+      const {SqliteControlAuthority}=await import(process.argv[1]);
+      const store=new SqliteControlAuthority(process.argv[2]);
+      store.revoke('operator',1);
+      process.kill(process.pid,'SIGKILL');
+    `;
+    const child=spawnSync(process.execPath,['--input-type=module','-e',script,url,t.path],
+      {timeout:12000,encoding:'utf8'});
+    assert.equal(child.error,undefined,child.stderr);
+    assert.equal(child.signal,'SIGKILL',child.stderr);
+    const again=new SqliteControlAuthority(t.path);
+    try{
+      fail(()=>authorize(again,key),'UNAUTHENTICATED');
+      assert.equal(again.inspect('operator')?.version,2);
+      const rows=again.auditLog();
+      assert.equal(rows.filter(x=>x.action==='revoke').length,1);
+      assert.equal(rows.filter(x=>x.action==='authorize'&&x.decision==='unauthenticated').length,1);
+    }finally{again.close();}
+  }finally{t.done();}
 });
