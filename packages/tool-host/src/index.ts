@@ -173,6 +173,8 @@ export class ProcessToolHost {
   }
 
   get pid(): number | undefined { return this.child.pid; }
+  /** Kernel-attested host PID of the isolated Worker, available only after READY. */
+  get verifiedWorkerPid():number|undefined {return this.workerIdentity?.pid;}
   /** Report a kernel refusal to kill the dedicated group; operator intervention required. */
   get cgroupCleanupError():KernelError|undefined {return this.cleanupError;}
 
