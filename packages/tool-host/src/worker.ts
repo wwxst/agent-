@@ -24,7 +24,8 @@ for (let attempt = 0; attempt < 16; attempt++) {
     await sleep(40);
   }
 }
-if (!ledger) throw new Error('Unable to initialize Host execution ledger');
+const readyLedger = ledger;
+if (!readyLedger) throw new Error('Unable to initialize Host execution ledger');
 
 const isRecord = (x: unknown): x is Record<string, unknown> =>
   typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -78,7 +79,7 @@ function validatedInput(call: HostCall): { text: string } | { ms: number } {
 
 async function execute(call: HostCall): Promise<string> {
   const input = validatedInput(call);
-  ledger.begin(call);
+  readyLedger.begin(call);
   let content: string;
   try {
     if ('text' in input) content = input.text;
@@ -88,11 +89,11 @@ async function execute(call: HostCall): Promise<string> {
     }
   } catch {
     // A STARTED execution can fail. Its receipt still requires a live lease.
-    ledger.finish(call, 'failed', 'HOST_EXECUTION_FAILED');
+    readyLedger.finish(call, 'failed', 'HOST_EXECUTION_FAILED');
     throw new KernelError('HOST_EXECUTION_FAILED', 'Read-only execution failed');
   }
   // A stale worker cannot finalize even if the tool body already ran.
-  ledger.finish(call, 'succeeded', content);
+  readyLedger.finish(call, 'succeeded', content);
   return content;
 }
 
@@ -116,7 +117,7 @@ process.on('message', (raw: unknown) => {
 });
 process.on('disconnect', () => {
   // A disconnect during a request leaves a durable STARTED row; never replay it.
-  ledger.close();
+  readyLedger.close();
   process.exit(0);
 });
 process.send?.({ type: 'ready' });
