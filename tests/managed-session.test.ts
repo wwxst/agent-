@@ -200,3 +200,43 @@ test('M1 scheduler: a lease guard is checked again after an exclusive barrier', 
   }), /LEASE_LOST/);
   assert.equal(calls, 1);
 });
+
+
+test('M1 scheduler: lease failure drains already running parallel reads before returning', async () => {
+  const { executeBatch } = await import('../packages/tool-scheduler/src/index.js');
+  const registry = new ToolRegistry();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let active = 0, guardChecks = 0, finished = false;
+  registry.register({
+    name: 'first', version: '1', risk: 'read', concurrency: 'parallel', parse: x => x,
+    execute: async () => {
+      active++;
+      entered();
+      await gate;
+      active--;
+      return 'complete';
+    },
+  });
+  registry.register({
+    name: 'second', version: '1', risk: 'read', concurrency: 'parallel', parse: x => x,
+    execute: async () => { throw new Error('second should never start'); },
+  });
+  const running = executeBatch([
+    { id: 'a', name: 'first', arguments: {} },
+    { id: 'b', name: 'second', arguments: {} },
+  ], registry, new AbortController().signal, () => {
+    if (++guardChecks === 2) throw new Error('LEASE_LOST');
+  }).finally(() => { finished = true; });
+  try {
+    await started;
+    await delay(20);
+    assert.equal(finished, false);
+    assert.equal(active, 1);
+  } finally {
+    release();
+  }
+  await assert.rejects(running, /LEASE_LOST/);
+  assert.equal(active, 0);
+});
