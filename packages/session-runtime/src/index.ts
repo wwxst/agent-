@@ -12,6 +12,8 @@ export interface ManagedSessionOptions {
   readonly renewEveryMs?: number;
   readonly maxSteps?: number;
   readonly maxToolCalls?: number;
+  readonly maxContextCharacters?: number;
+  readonly maxTotalTokens?: number;
 }
 
 /**
@@ -78,6 +80,8 @@ export class ManagedSessionRunner {
         assertExecutionLease: guard,
         ...(this.options.maxSteps === undefined ? {} : { maxSteps: this.options.maxSteps }),
         ...(this.options.maxToolCalls === undefined ? {} : { maxToolCalls: this.options.maxToolCalls }),
+        ...(this.options.maxContextCharacters === undefined ? {} : { maxContextCharacters: this.options.maxContextCharacters }),
+        ...(this.options.maxTotalTokens === undefined ? {} : { maxTotalTokens: this.options.maxTotalTokens }),
       };
       const tools = typeof this.tools === 'function' ? this.tools(claim) : this.tools;
       kernel = new AgentKernel(journal, this.provider, tools, kernelOptions, this.onDelta);

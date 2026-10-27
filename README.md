@@ -1,6 +1,6 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 只读 Host/双账本对账/人工复核审计增量已实现（非生产就绪）** · **最后更新：2026-10-27**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 真实 Provider/只读 Host/人工复核审计增量已实现（非生产就绪）** · **最后更新：2026-10-27**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
@@ -50,6 +50,7 @@
 20. [M1 子进程 Tool Host 与执行账本](docs/16-M1-子进程ToolHost-与执行账本.md)：子进程白名单、Host 端租约及 Intent 复核、重复执行防护。
 21. [M1 双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)：Kernel 事件/Host 台账一致快照，保守审计，禁止自动重放。
 22. [M1 证据绑定人工复核记录](docs/18-M1-证据绑定人工审核记录.md)：审计 Hash 与审核记录在事务内绑定，缺少生产鉴权且不自动恢复。
+23. [M1 旧 PR #2 真实 Provider 与 CLI 移植](docs/19-M1-旧PR2-真实Provider和CLI整合.md)：SSE 适配、工具目录快照、用量/字符准入、无工具 CLI。
 
 附加约束：
 
@@ -76,11 +77,12 @@
 - **M1 Tool Intent/Receipt 执行审计（已合并 main）**：新增 `packages/tool-audit`、事件合同、Kernel 执行前 Intent 和按 ToolCall 单独持久 Receipt；面对收据丢失、进程崩溃或 outcome_unknown 坚持人工对账而非自动重试；新增 13 项测试。
 - **M1 子进程 Tool Host（已实现增量）**：新增 `packages/tool-host`（IPC Client、Worker、SQLite 执行账本），子进程自己复核有效租约和持久 Intent，在调用前提交 STARTED、结束时再验证 Fencing Token；仅支持 `read.echo/read.sleep` 两个演示工具，新增 10 项测试。
 - **M1 双账本只读对账（已合并 main）**：新增 `packages/tool-reconciliation`；只读事务同时快照 Kernel 与 Host，区分已验证、缺失收据、未开始证据、STARTED、冲突、孤儿 Host 等情况；强制 Receipt/Result 相邻，新增 12 项测试。
-- **M1 证据绑定人工复核（本轮分支）**：新增 `packages/recovery-review`，单事务检查全量双账本证据 Hash，插入不可变审核记录；不授予重试/恢复许可。修复 Tool Host 冷启动 Schema 初始化竞争，新增 11 项测试（含 10 轮冷启动测试）。
-- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，累计目标 88 项测试；以具体 workflow run 为准。
-- **仍未具备**：真实模型、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M1 证据绑定人工复核（已合并 main）**：新增 `packages/recovery-review`，单事务检查全量双账本证据 Hash，插入不可变审核记录；不授予重试/恢复许可。修复 Tool Host 冷启动 Schema 初始化竞争，新增 11 项测试（含 10 轮冷启动测试）。
+- **M1 真实 Provider/CLI（本轮分支）**：选择性移植旧 PR #2 的 OpenAI Chat Completions SSE 与原生 Anthropic Messages SSE，新增每步只读工具目录快照、模型用量与预算、字符准入、基于 Fencing Runner 的文本 CLI；不移植旧 Kernel。新增 37 项离线/真实进程集成测试，累计目标 125 项。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`；以当前提交的 CI 为准。
+- **仍未具备**：真实计费 API 端到端联调、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。下一步建立经过认证的审核/审批服务端、可验证 Host 身份与 OS 强制隔离，再设计安全恢复流程和真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。下一步建立经过认证的审核/审批服务端、可验证 Host 身份与 OS 强制隔离，再设计安全恢复流程、历史 PR #3 Command Inbox 移植、Steering 与 Context Checkpoint。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。

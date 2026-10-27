@@ -1,13 +1,29 @@
-import { KernelError, type ToolCall, type ToolDefinition, type ToolExecutionContext, type ToolResult } from '../../contracts/src/index.js';
+import { KernelError, type ToolCall, type ToolDefinition, type ToolExecutionContext, type ToolResult, type ToolSpec } from '../../contracts/src/index.js';
 
 export class ToolRegistry {
   private readonly byName = new Map<string, ToolDefinition>();
+  private catalogVersion = 0;
   register(tool: ToolDefinition): void {
     if (!tool.name.trim() || !tool.version.trim() || this.byName.has(tool.name)) throw new Error(`Duplicate/invalid tool: ${tool.name}`);
-    this.byName.set(tool.name, tool);
+    this.byName.set(tool.name, Object.freeze({...tool}));
+    this.catalogVersion++;
   }
   resolve(name: string): ToolDefinition | undefined { return this.byName.get(name); }
   get visibleTools(): readonly string[] { return [...this.byName.keys()]; }
+  /** Bind tool implementation identities for the entire model step. */
+  snapshot(): ToolRegistry {
+    const result=new ToolRegistry();
+    for (const [name,definition] of this.byName) result.byName.set(name,Object.freeze({...definition}));
+    result.catalogVersion=this.catalogVersion;
+    return result;
+  }
+  get version(): number { return this.catalogVersion; }
+  modelSpecs(): readonly ToolSpec[] {
+    return [...this.byName.values()].filter(t=>t.risk==='read').map(t=>({
+      name:t.name,version:t.version,description:t.description??'',
+      inputSchema:structuredClone(t.inputSchema??{type:'object',additionalProperties:true}),
+    }));
+  }
 }
 
 interface Prepared {

@@ -27,6 +27,7 @@
 | M1-16 | [子进程 Tool Host 与执行账本](16-M1-子进程ToolHost-与执行账本.md) | 独立 Node 子进程、Host 侧 Intent/Fence、STARTED 台账，尚无 OS 沙箱 |
 | M1-17 | [双账本只读对账与证据判定](17-M1-双账本只读对账与证据判定.md) | SQLite 一致只读快照、证据归类与强制无盲目重试 |
 | M1-18 | [证据绑定人工复核记录](18-M1-证据绑定人工审核记录.md) | 审核理由/身份字段、Hash CAS、不可变持久记录；尚无生产鉴权和恢复授权 |
+| M1-19 | [旧 PR #2 Provider 和 CLI 移植](19-M1-旧PR2-真实Provider和CLI整合.md) | OpenAI/Anthropic 流式、工具快照、Usage/字符准入与受限 CLI；未实测计费模型 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |

@@ -17,20 +17,35 @@ export type AssistantMessage = Readonly<{
 }>;
 export type ContextMessage =
   | Readonly<{ role: 'user'; text: string }>
+  | Readonly<{ role: 'summary'; text: string }>
   | AssistantMessage
   | Readonly<{ role: 'tool'; result: ToolResult }>;
 
 /** Tool calls only become executable when a complete message event is delivered. */
 export type ProviderEvent =
   | Readonly<{ type: 'text_delta'; text: string }>
+  | Readonly<{ type: 'usage'; usage: ModelTokenUsage }>
   | Readonly<{
       type: 'message_complete';
       message: AssistantMessage;
       finishReason: 'stop' | 'tool_use' | 'length';
     }>;
+export type ModelTokenUsage = Readonly<{ inputTokens: number; outputTokens: number }>;
+/** Immutable model-visible tool catalog for one step; never a capability token. */
+export interface ToolSpec {
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly inputSchema: unknown;
+}
+export interface ModelStepRequest {
+  readonly stepId: string;
+  readonly toolSetVersion: number;
+  readonly tools: readonly ToolSpec[];
+}
 export interface ModelProvider {
   readonly id: string;
-  stream(messages: readonly ContextMessage[], signal: AbortSignal): AsyncIterable<ProviderEvent>;
+  stream(messages: readonly ContextMessage[], signal: AbortSignal, step?: ModelStepRequest): AsyncIterable<ProviderEvent>;
 }
 
 /** Trusted routing metadata; Host must independently verify every field. */
@@ -46,6 +61,8 @@ export interface ToolDefinition {
   readonly version: string;
   readonly risk: Risk;
   readonly concurrency: Concurrency;
+  readonly description?: string;
+  readonly inputSchema?: unknown;
   /** Must validate and normalize untrusted model arguments; must not have side effects. */
   parse(input: unknown): unknown;
   /** Fake/read-only host for M0 only. A production Host must return a separate receipt. */
@@ -56,7 +73,7 @@ export type TurnState = 'queued' | 'running_model' | 'running_tools' | 'cancelli
 export type KernelEventType =
   | 'session.created' | 'turn.queued' | 'turn.started' | 'turn.cancel_requested'
   | 'user.message' | 'model.started' | 'assistant.message' | 'tool.intent' | 'tool.receipt' | 'tool.result'
-  | 'turn.completed' | 'turn.failed' | 'turn.cancelled';
+  | 'turn.completed' | 'turn.failed' | 'turn.cancelled' | 'model.usage';
 
 export interface EventDraft {
   readonly type: KernelEventType;
