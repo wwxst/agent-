@@ -21,7 +21,7 @@ const host=new ProcessToolHost('/trusted/state/session.sqlite',4000,sandbox);
 await host.waitUntilReady();
 ```
 
-对于 M3-29 的 `startEnforcedToolHost`、M3-30 的 `startDedicatedToolHost`，相同 `sandbox` 对象也可以传入，使受资源额度约束的 Worker 同时受 seccomp 保护。**本阶段未强制所有既有启动入口必须开启 seccomp**，以免未验证的平台默默使用错误 syscall 编号；可信生产编排应明确要求该配置并拒绝缺失情况。
+**M3-33 后续约束**：M3-29 `startEnforcedToolHost` 与 M3-30 `startDedicatedToolHost` 两个资源受限的受信高层入口现在**强制要求** `seccompPolicy:'network-and-privilege-deny-v1'`；缺失、非法或不支持的平台会在任何 Host 启动之前拒绝。底层兼容 `ProcessToolHost` 在非专有组模式下仍可显式不设置 seccomp，**不能把它当作该强制入口**。
 
 ## 受信生成与传输
 
