@@ -102,10 +102,14 @@ export function verifyJournal(events:readonly KernelEvent[],sessionId:string):vo
  */
 export class SqliteCommandInbox {
   private readonly db: DatabaseSync;
-  constructor(path:string) {
+  constructor(path:string, options:Readonly<{readOnly?:boolean}>={}) {
     if(!validText(path,4096)) throw new KernelError('INVALID_STORE_PATH','SQLite path required');
-    this.db=new DatabaseSync(path,{timeout:5000});
+    this.db=new DatabaseSync(path,{timeout:5000,...(options.readOnly?{readOnly:true}:{})});
     try{
+      if(options.readOnly){
+        this.db.exec('PRAGMA query_only=ON');
+        return;
+      }
       this.db.exec('PRAGMA journal_mode=WAL');
       this.db.exec('PRAGMA synchronous=FULL');
       this.db.exec(`
@@ -200,6 +204,46 @@ export class SqliteCommandInbox {
       `).run(lease.sessionId,commandId,kind,fingerprint,payloadJson,acceptedSeq);
       this.db.exec('COMMIT');
       return {sessionId:lease.sessionId,commandId,kind,fingerprint,acceptedSeq,replayed:false};
+    }catch(error){
+      if(this.db.isTransaction)this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /**
+   * Consistent read-only ACK lookup, suitable for authenticated status APIs.
+   * Never trust the command table alone: the original event must match.
+   */
+  inspectAccepted(sessionId:string,commandId:string):AcceptedCommand|undefined {
+    if(!validText(sessionId,256) || !validText(commandId,128))
+      throw new KernelError('INVALID_COMMAND','Invalid command identity');
+    this.db.exec('BEGIN');
+    try{
+      const row=this.db.prepare(`
+        SELECT command_id,kind,fingerprint,accepted_seq FROM session_commands
+        WHERE session_id=? AND command_id=?
+      `).get(sessionId,commandId);
+      if(!row) {
+        this.db.exec('COMMIT');
+        return undefined;
+      }
+      const event=this.db.prepare(`
+        SELECT type,turn_id,data_json FROM kernel_events
+        WHERE session_id=? AND seq=?
+      `).get(sessionId,row.accepted_seq as number);
+      if(!event || event.type!=='command.accepted' || event.turn_id!==null)
+        throw new KernelError('CORRUPT_EVENT_LOG','Command ACK missing original event');
+      const data=JSON.parse(event.data_json as string) as unknown;
+      if(!data || typeof data!=='object' || Array.isArray(data))
+        throw new KernelError('CORRUPT_EVENT_LOG','Invalid ACK payload');
+      const ack=data as Record<string,unknown>;
+      if(ack.commandId!==row.command_id || ack.kind!==row.kind
+        ||ack.fingerprint!==row.fingerprint)
+        throw new KernelError('CORRUPT_EVENT_LOG','Command ACK mismatch');
+      this.db.exec('COMMIT');
+      return {sessionId,commandId,kind:row.kind as string,
+        fingerprint:row.fingerprint as string,
+        acceptedSeq:row.accepted_seq as number,replayed:true};
     }catch(error){
       if(this.db.isTransaction)this.db.exec('ROLLBACK');
       throw error;

@@ -92,10 +92,14 @@ function expose(sessionId:string,binding:TurnBinding,events:readonly KernelEvent
  */
 export class SqliteCommandDispatcher {
   private readonly db: DatabaseSync;
-  constructor(path:string){
+  constructor(path:string, options:Readonly<{readOnly?:boolean}>={}){
     if(!valid(path,4096))throw new KernelError('INVALID_STORE_PATH','DB path required');
-    this.db=new DatabaseSync(path,{timeout:5000});
+    this.db=new DatabaseSync(path,{timeout:5000,...(options.readOnly?{readOnly:true}:{})});
     try {
+      if(options.readOnly){
+        this.db.exec('PRAGMA query_only=ON');
+        return;
+      }
       this.db.exec('PRAGMA journal_mode=WAL');
       this.db.exec('PRAGMA synchronous=FULL');
       this.db.exec(`
