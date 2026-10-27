@@ -29,9 +29,15 @@ function run():never{
   const now=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
   if(now!==relativeLeaf)process.exit(77);
   assertInheritedCgroupBudget(inspectCgroupV2From('0::/',target),budget);
-  const child=spawn(executable,argv,{
-    env:{},stdio:'inherit',
-  });
+  const index=argv.indexOf('--seccomp');
+  const hasFilter=index>=0;
+  if(hasFilter && (argv[index+1]!=='3' || argv.lastIndexOf('--seccomp')!==index))
+    process.exit(77);
+  // Only the trusted parent-supplied, already open FD 3 may cross the
+  // launcher boundary. stdin/stdout remain the bounded Host transport.
+  const stdio:Array<'inherit'|number>=['inherit','inherit','inherit'];
+  if(hasFilter)stdio.push(3);
+  const child=spawn(executable,argv,{env:{},stdio});
   child.on('error',()=>{process.exitCode=77;});
   child.on('exit',(code,signal)=>{
     process.exitCode=signal?77:(code??77);
