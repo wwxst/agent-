@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type ModelTokenUsage, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
+import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
 import { admitContext } from '../../context-engine/src/index.js';
 
 interface ActiveTurn {
@@ -118,7 +119,8 @@ export class AgentKernel {
         }
       }
       const audit = inspectToolAudit(events);
-      if (pending || audit.some(item => item.needsReconciliation)) {
+      const steering = inspectSteeringAudit(events);
+      if (pending || audit.some(item => item.needsReconciliation) || steering.unconsumedSteers > 0) {
         throw new KernelError('RECOVERY_REQUIRED', 'Unfinished turn or uncertain tool outcome; do not replay');
       }
       // Install the cursor only after the whole event stream has passed validation.
