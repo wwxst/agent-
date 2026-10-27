@@ -2,6 +2,9 @@ import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { ConflictError, KernelError, type KernelEvent } from '../../contracts/src/index.js';
 import { verifyJournal } from '../../command-inbox/src/index.js';
+import { inspectToolAudit } from '../../tool-audit/src/index.js';
+import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectContextCheckpoints } from '../../context-engine/src/checkpoint.js';
 import { inspectTurnBindings, type TurnBinding } from './audit.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 
@@ -38,6 +41,13 @@ function loadEvents(db:DatabaseSync,sessionId:string):KernelEvent[]{
 }
 
 function auditRows(db:DatabaseSync,sessionId:string,events:readonly KernelEvent[]):readonly TurnBinding[]{
+  for(let i=0;i<events.length;i++){
+    if(events[i]?.sessionId!==sessionId || events[i]?.seq!==i+1)
+      corrupt('Session identity or journal sequence changed');
+  }
+  inspectContextCheckpoints(events);
+  inspectSteeringAudit(events);
+  inspectToolAudit(events);
   const bindings=inspectTurnBindings(events);
   const rows=db.prepare(`
     SELECT command_id,turn_id,accepted_seq,bound_seq
@@ -52,6 +62,10 @@ function auditRows(db:DatabaseSync,sessionId:string,events:readonly KernelEvent[
   return bindings;
 }
 function status(events:readonly KernelEvent[],turnId:string):DispatchStatus{
+  if(inspectToolAudit(events).some(e=>e.turnId===turnId && e.needsReconciliation))
+    return 'outcome_unknown';
+  if(inspectSteeringAudit(events).unconsumedSteers>0)
+    return 'outcome_unknown';
   const turn=events.filter(x=>x.turnId===turnId);
   if(turn.some(e=>e.type==='turn.completed'))return 'completed';
   if(turn.some(e=>e.type==='turn.failed'))return 'failed';
