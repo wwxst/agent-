@@ -221,11 +221,13 @@ export class AgentKernel {
         // All intents become durable BEFORE the first tool can start.
         // Assistant message already contains full original arguments; intent
         // points at that call with a stable step and callId.
+        // A storage adapter might commit an intent then fail before ACK.
+        // Treat the result of this append as ambiguous until audited.
+        unsafeToolState = true;
         await record(...message.toolCalls.map(call => ({
           type: 'tool.intent' as const, turnId,
           data: { callId: call.id, name: call.name, step },
         })));
-        unsafeToolState = true;
         const results = await executeBatch(
           message.toolCalls, this.tools, ctl.controller.signal,
           () => this.verifyExecution(ctl),
