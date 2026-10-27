@@ -7,6 +7,7 @@ import {
   assertEnforcedSandboxPolicy,startDedicatedToolHost,startEnforcedToolHost,
 } from '../packages/tool-host/src/enforced.js';
 import type {LinuxBubblewrapSandbox} from '../packages/tool-host/src/sandbox.js';
+import {ProcessToolHost} from '../packages/tool-host/src/index.js';
 
 const supported=process.platform==='linux'&&process.arch==='x64';
 const valid=():LinuxBubblewrapSandbox=>({
@@ -114,6 +115,17 @@ test('M3 policy: malformed resource budget is still rejected before seccomp/file
       databasePath:f.db,requiredBudget:{...quota,maxPids:0},
       sandbox:{binaryPath:'/usr/bin/bwrap',runtimeReadOnlyDirectories:['/usr']},
     }),{code:'HOST_CGROUP_BUDGET_UNSATISFIED'});
+    assert.equal(existsSync(f.db),false);
+  }finally{f.clean();}
+});
+
+test('M3 policy: direct dedicated ProcessToolHost cannot bypass the seccomp requirement',()=>{
+  const f=scratch();
+  try{
+    assert.throws(()=>new ProcessToolHost(f.db,500,{
+      binaryPath:'/nonexistent/bwrap',runtimeReadOnlyDirectories:['/usr'],
+      dedicatedCgroup:{relativePath:'/forged/worker',budget:quota},
+    }),{code:'HOST_SECCOMP_UNAVAILABLE'});
     assert.equal(existsSync(f.db),false);
   }finally{f.clean();}
 });
