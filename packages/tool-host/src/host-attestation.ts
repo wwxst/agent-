@@ -129,8 +129,8 @@ export function attestSandboxWorker(req:AttestationRequest):KernelHostIdentity{
 
 function seccompStatus(pid:number):{mode:number;filters:number}{
   const status=proc(pid,'status');
-  const mode=/^Seccomp:\\s*(\\d+)\\s*$/m.exec(status);
-  const filters=/^Seccomp_filters:\\s*(\\d+)\\s*$/m.exec(status);
+  const mode=/^Seccomp:\s*(\d+)\s*$/m.exec(status);
+  const filters=/^Seccomp_filters:\s*(\d+)\s*$/m.exec(status);
   if(!mode||!filters)return reject();
   return {mode:Number(mode[1]),filters:Number(filters[1])};
 }
