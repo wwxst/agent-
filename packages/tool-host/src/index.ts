@@ -37,6 +37,7 @@ export class ProcessToolHost {
   private readonly pending = new Map<string, Pending>();
   private ended = false;
   private readonly sandboxed:boolean;
+  private readonly seccompRequired:boolean;
   private workerIdentity?:KernelHostIdentity;
   private readonly expectedWorkerPath:string;
   private readonly expectedNodePath:string;
@@ -52,6 +53,7 @@ export class ProcessToolHost {
   constructor(databasePath: string, private readonly timeoutMs = 4000,
     sandbox?: LinuxBubblewrapSandbox) {
     this.sandboxed=sandbox!==undefined;
+    this.seccompRequired=sandbox?.seccompPolicy!==undefined;
     this.expectedWorkerPath=fileURLToPath(new URL('./worker.js',import.meta.url));
     this.expectedNodePath=process.execPath;
     this.expectedDatabasePath=databasePath;
@@ -234,7 +236,7 @@ export class ProcessToolHost {
       try{
         if(!this.workerIdentity)throw Error('Worker attestation unavailable');
         assertWorkerIdentity(this.workerIdentity);
-        if(sandbox?.seccompPolicy)
+        if(this.seccompRequired)
           assertWorkerSeccompInstalled(this.workerIdentity.pid);
       }catch{
         this.close();
