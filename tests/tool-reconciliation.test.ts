@@ -219,6 +219,10 @@ test('M1 reconciliation: orphan Host row is conspicuous, not treated as successf
     const store=new SqliteEventStore(tmp.path,lease);
     try {await store.append('orphan',0,[{type:'session.created',data:{}}]);}
     finally {store.close();}
+    // This is a deliberately tampered Host ledger row; initialize the schema
+    // but never call Host.begin(), which correctly rejects orphan requests.
+    const init=new HostExecutionLedger(tmp.path);
+    init.close();
     const db=new DatabaseSync(tmp.path);
     try {
       db.prepare(`
@@ -262,6 +266,9 @@ test('M1 reconciliation: readonly observer does not change any persisted rows or
     const lease=leases.acquire('unmodified','a',5000);
     assert.ok(lease);
     await seedIntent(tmp.path,lease);
+    // Existing empty host table must remain untouched by readonly inspection.
+    const init=new HostExecutionLedger(tmp.path);
+    init.close();
     const db=new DatabaseSync(tmp.path);
     let eventsBefore: unknown, leasesBefore: unknown;
     try {
