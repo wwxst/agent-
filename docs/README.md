@@ -39,6 +39,7 @@
 | M3-28 | [沙箱启动可信根与临时空间预算](28-M3-沙箱启动可信根与私有临时空间预算.md) | launcher 位于受信 RO runtime、tmpfs 容量限制与 Worker READY 超时 fail-closed |
 | M3-29 | [强制沙箱入口与继承 cgroup v2 配额](29-M3-强制沙箱入口与继承cgroup资源额度.md) | Linux Bubblewrap READY + CPU/内存/PID cgroup v2 预先有限配额，未受限拒绝；明确非 Worker 专属组 |
 | M3-30 | [独立 Worker cgroup 与整组终止](30-M3-独立Worker-cgroup与整组终止边界.md) | 受信预创建空叶子、直接额度、先迁组再启动 Worker 和 cgroup.kill；正向内核集成待验证 |
+| M3-31 | [Tool Host 内核侧进程身份验证](31-M3-ToolHost-内核侧进程身份验证.md) | READY 前独立核验 /proc 子孙 PID、真实 exe/argv、四类 namespace 和启动版本，调用前重检 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |

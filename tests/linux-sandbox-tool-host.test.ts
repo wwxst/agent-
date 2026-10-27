@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync,readlinkSync,readFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -140,6 +140,16 @@ test('M3 sandbox: actual bwrap namespace worker uses durable Host ledger if supp
   if(probe.status!==0) return t.skip('Linux user namespaces denied by host policy');
   const tmp=temp(),host=new ProcessToolHost(tmp.path,3000,config());
   try{
+    await host.waitUntilReady();
+    const proven=host.verifiedWorkerPid;
+    assert.ok(proven && proven>1,'Worker PID must be independently attested from /proc');
+    assert.notEqual(proven,host.pid,'Worker must not merely be the bwrap launcher');
+    for(const namespace of ['mnt','net','pid','user']){
+      assert.notEqual(readlinkSync('/proc/'+proven+'/ns/'+namespace),
+        readlinkSync('/proc/self/ns/'+namespace));
+    }
+    const actualArguments=readFileSync('/proc/'+proven+'/cmdline','utf8');
+    assert.match(actualArguments,/worker\.js/);
     const provider=new FakeProvider([[
       {type:'message_complete',message:{role:'assistant',text:'',toolCalls:[
         {id:'call',name:'read.echo',arguments:{text:'sandbox output'}},
