@@ -51,7 +51,8 @@ export class ManagedSessionRunner {
     }
   }
 
-  private async withLease<T>(sessionId: SessionId, work: (kernel: AgentKernel, lease: WriterLease) => Promise<T>): Promise<T> {
+  private async withLease<T>(sessionId: SessionId, work: (kernel: AgentKernel, lease: WriterLease) => Promise<T>,
+    executionAuthorization?: () => void): Promise<T> {
     if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'Session ID must be nonempty');
     const leases = new SqliteWriterLeaseStore(this.databasePath);
     let journal: SqliteEventStore | undefined;
@@ -62,20 +63,28 @@ export class ManagedSessionRunner {
       claim = leases.acquire(sessionId, randomUUID(), this.ttlMs);
       if (!claim) throw new KernelError('SESSION_BUSY', 'Another writer owns this session');
 
-      let lost = false;
-      const markLost = (): void => {
-        if (!lost) {
-          lost = true;
-          kernel?.fenceActiveTurn(sessionId);
+      let lostReason: 'LEASE_LOST'|'AUTHORIZATION_REVOKED'|undefined;
+      const markLost = (reason:'LEASE_LOST'|'AUTHORIZATION_REVOKED'): void => {
+        if (!lostReason) {
+          lostReason=reason;
+          kernel?.fenceActiveTurn(sessionId,reason);
         }
       };
       const guard = (): void => {
-        if (lost) throw new KernelError('LEASE_LOST', 'Writer lease lost');
+        if(lostReason)throw new KernelError(lostReason,'Fenced execution');
         try {
           leases.assertOwned(claim!);
         } catch {
-          markLost();
+          markLost('LEASE_LOST');
           throw new KernelError('LEASE_LOST', 'Writer lease check failed');
+        }
+        if(executionAuthorization){
+          try{ executionAuthorization(); }
+          catch{
+            // Audit storage errors are revocation-equivalent: fail closed.
+            markLost('AUTHORIZATION_REVOKED');
+            throw new KernelError('AUTHORIZATION_REVOKED','Execution authorization not current');
+          }
         }
       };
 
@@ -95,11 +104,13 @@ export class ManagedSessionRunner {
       // Heartbeat is synchronous, so timer ticks never overlap each other.
       // Timer stalls can still let the claim expire; boundary checks fail closed.
       heartbeat = setInterval(() => {
-        if (lost) return;
+        if (lostReason) return;
         try {
+          guard(); // Check authorization even while provider/tool awaits I/O.
           claim = leases.renew(claim!, this.ttlMs);
-        } catch {
-          markLost(); // cancellation is cooperative, with no fake terminal event
+        } catch (error) {
+          markLost(error instanceof KernelError && error.code==='AUTHORIZATION_REVOKED'
+            ? 'AUTHORIZATION_REVOKED':'LEASE_LOST');
         }
       }, this.renewEveryMs);
       guard();
@@ -155,7 +166,8 @@ export class ManagedSessionRunner {
    * drives the model under the SAME Writer Lease. Re-delivery: read status
    * only; never invoke Kernel/Provider/ToolHost again.
    */
-  dispatchCommand(sessionId:SessionId,commandId:string):Promise<{
+  dispatchCommand(sessionId:SessionId,commandId:string,
+    executionAuthorization?:()=>void):Promise<{
     readonly dispatch:DispatchedTurn;
     readonly execution?:TurnResult;
   }> {
@@ -177,7 +189,7 @@ export class ManagedSessionRunner {
         if(!current)throw new KernelError('CORRUPT_COMMAND_DISPATCH','Dispatch mapping disappeared');
         return {dispatch:{...current,replayed:false},execution};
       } finally { dispatcher.close(); }
-    });
+    },executionAuthorization);
   }
 
   /** Route steering to the *currently leased* in-process Turn; no new writer claim. */

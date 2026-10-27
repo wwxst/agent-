@@ -4,7 +4,7 @@ import {ConflictError,KernelError} from '../../contracts/src/index.js';
 import type {ControlPermission,ControlPrincipalConfig} from './auth.js';
 
 type Decision='allowed'|'unauthenticated'|'forbidden';
-type Action='authorize'|'bootstrap'|'rotate'|'revoke';
+type Action='authorize'|'recheck'|'bootstrap'|'rotate'|'revoke';
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v);
 const token=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9_-]{43}$/.test(v)
   &&Buffer.from(v,'base64url').length===32
@@ -29,6 +29,16 @@ export interface AuthorityAuditRow {
   readonly permission:string|null;
   readonly credentialVersion:number|null;
   readonly atMs:number;
+}
+/**
+ * Created only by the trusted authenticated HTTP ingress. A grant is never
+ * accepted from request JSON and is not a capability for calling an API.
+ */
+export interface RuntimeAuthorizationGrant {
+  readonly principalId:string;
+  readonly credentialVersion:number;
+  readonly sessionId:string;
+  readonly permission:ControlPermission;
 }
 export interface AuthorityCredential {
   readonly principalId:string;
@@ -133,7 +143,10 @@ export class SqliteControlAuthority {
    * key list. Both allowed and denied decisions must durably commit; failure to
    * write audit means NO authorization.
    */
-  authorize(header:unknown,sessionId:string,permission:ControlPermission):string{
+  authorize(header:unknown,sessionId:string,permission:ControlPermission):string {
+    return this.authorizeGrant(header,sessionId,permission).principalId;
+  }
+  authorizeGrant(header:unknown,sessionId:string,permission:ControlPermission):RuntimeAuthorizationGrant{
     if(!id(sessionId)||!permissions.includes(permission))
       throw new KernelError('INVALID_CONTROL_CONFIG','Unrecognized operation or session ID');
     const candidate=typeof header==='string' && /^Bearer [A-Za-z0-9_-]{43}$/.test(header)
@@ -165,13 +178,46 @@ export class SqliteControlAuthority {
         outcome=sessions.includes(sessionId) && allowed.includes(permission)?'allowed':'forbidden';
       }
       this.audit('authorize',outcome,pid,sessionId,permission,version);
-      return {outcome,principalId:pid};
+      return {outcome,principalId:pid,version};
     });
     if(decision.outcome==='unauthenticated')
       throw new KernelError('UNAUTHENTICATED','Bearer credential not active');
     if(decision.outcome==='forbidden')
       throw new KernelError('FORBIDDEN','Credential lacks scope');
-    return decision.principalId!;
+    return {principalId:decision.principalId!,credentialVersion:decision.version!,
+      sessionId,permission};
+  }
+  /**
+   * Recheck the *same* committed credential version for a previously authorized
+   * Turn. Each check is a transactionally recorded decision, fail-closed on
+   * storage errors. No reauthentication using a bearer token is performed.
+   */
+  assertGrant(grant:Readonly<RuntimeAuthorizationGrant>):void{
+    if(!id(grant.principalId)||!id(grant.sessionId)
+      ||!permissions.includes(grant.permission)
+      ||!Number.isSafeInteger(grant.credentialVersion)||grant.credentialVersion<1)
+      throw new KernelError('INVALID_CONTROL_CONFIG','Malformed internal authorization grant');
+    const allowed=this.transact(()=>{
+      const row=this.db.prepare(`
+        SELECT credential_version,revoked,session_ids_json,permissions_json
+        FROM control_credentials WHERE principal_id=?
+      `).get(grant.principalId);
+      let permitted=false;
+      if(row){
+        const sessions=JSON.parse(row.session_ids_json as string) as unknown;
+        const allowedPermissions=JSON.parse(row.permissions_json as string) as unknown;
+        if(!Array.isArray(sessions)||!Array.isArray(allowedPermissions)
+          ||!sessions.every(id)||!allowedPermissions.every(p=>permissions.includes(p)))
+          throw new KernelError('CORRUPT_AUTHORITY','Authority scope malformed');
+        permitted=row.revoked===0&&row.credential_version===grant.credentialVersion
+          &&sessions.includes(grant.sessionId)
+          &&allowedPermissions.includes(grant.permission);
+      }
+      this.audit('recheck',permitted?'allowed':'forbidden',grant.principalId,
+        grant.sessionId,grant.permission,grant.credentialVersion);
+      return permitted;
+    });
+    if(!allowed)throw new KernelError('AUTHORIZATION_REVOKED','Execution authorization has changed');
   }
   /**
    * Trusted local admin only. Rotation retains exact existing scopes.

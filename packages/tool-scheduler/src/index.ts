@@ -62,7 +62,7 @@ async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => v
     const text = await item.definition.execute(item.input, signal, context ? { ...context, callId: item.call.id } : undefined);
     return errorResult(item.call, 'succeeded', text);
   } catch (error) {
-    if (error instanceof KernelError && error.code === 'LEASE_LOST') throw error;
+    if (error instanceof KernelError && (error.code === 'LEASE_LOST' || error.code === 'AUTHORIZATION_REVOKED')) throw error;
     if (error instanceof KernelError && error.code === 'TOOL_OUTCOME_UNKNOWN') {
       return errorResult(item.call, 'outcome_unknown', 'HOST_EXECUTION_OUTCOME_UNKNOWN');
     }

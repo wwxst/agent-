@@ -12,6 +12,7 @@ interface ActiveTurn {
   controller: AbortController;
   state: TurnState | 'admitting';
   fenced?: boolean;
+  fenceReason?: 'LEASE_LOST'|'AUTHORIZATION_REVOKED';
   /** An acknowledged steer MUST be persisted before model context is updated. */
   steering: Array<{text:string;ready:Promise<void>}>;
 }
@@ -142,18 +143,20 @@ export class AgentKernel {
    * Loss of lease is NOT user cancellation: abort cooperatively but deliberately
    * leave the admitted turn unresolved for recovery. No terminal event is forged.
    */
-  fenceActiveTurn(sessionId: SessionId): boolean {
+  fenceActiveTurn(sessionId: SessionId,
+    reason: 'LEASE_LOST'|'AUTHORIZATION_REVOKED'='LEASE_LOST'): boolean {
     const ctl = this.active.get(sessionId);
     if (!ctl || ctl.fenced) return false;
     ctl.fenced = true;
-    ctl.controller.abort(new KernelError('LEASE_LOST', 'Writer lease lost'));
+    ctl.fenceReason = reason;
+    ctl.controller.abort(new KernelError(reason, 'Turn fenced; manual review required'));
     return true;
   }
 
   private verifyExecution(ctl: ActiveTurn): void {
-    if (ctl.fenced) throw new KernelError('LEASE_LOST', 'Writer lease lost');
+    if (ctl.fenced) throw new KernelError(ctl.fenceReason??'LEASE_LOST','Turn is fenced');
     this.assertExecutionLease?.();
-    if (ctl.fenced) throw new KernelError('LEASE_LOST', 'Writer lease lost');
+    if (ctl.fenced) throw new KernelError(ctl.fenceReason??'LEASE_LOST','Turn is fenced');
   }
 
   private isCancelling(ctl: ActiveTurn): boolean { return ctl.controller.signal.aborted || ctl.state === 'cancelling'; }
@@ -431,10 +434,14 @@ export class AgentKernel {
     } catch (error) {
       // Fence loss is not cancellation/failure: never append a terminal event
       // after ownership is gone. The successor must reconcile this turn.
-      if (ctl.fenced || (error instanceof KernelError && error.code === 'LEASE_LOST')) {
-        ctl.fenced = true;
-        ctl.controller.abort(new KernelError('LEASE_LOST', 'Writer lease lost'));
-        throw new KernelError('LEASE_LOST', 'Turn unfinished after losing writer lease');
+      if (ctl.fenced || (error instanceof KernelError &&
+        (error.code === 'LEASE_LOST'||error.code === 'AUTHORIZATION_REVOKED'))) {
+        const reason=ctl.fenceReason??(error instanceof KernelError &&
+          error.code==='AUTHORIZATION_REVOKED'?'AUTHORIZATION_REVOKED':'LEASE_LOST');
+        ctl.fenced=true;
+        ctl.fenceReason=reason;
+        ctl.controller.abort(new KernelError(reason,'Turn fenced; no automatic replay'));
+        throw new KernelError(reason,'Turn left unresolved; audit before recovery');
       }
       // Intent is durable but not all receipts are definitively settled.
       // Writing turn.failed/cancelled here would incorrectly clear recovery.
