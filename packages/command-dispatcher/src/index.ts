@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { ConflictError, KernelError, type KernelEvent } from '../../contracts/src/index.js';
 import { verifyJournal } from '../../command-inbox/src/index.js';
@@ -169,7 +169,8 @@ export class SqliteCommandDispatcher {
       const append=(seq:number,type:string,turn:string|null,data:unknown):void=>{
         insert.run(lease.sessionId,seq,randomUUID(),turn,type,JSON.stringify(data),now);
       };
-      append(boundSeq,'command.turn_bound',null,{commandId,turnId,acceptedSeq:command.accepted_seq});
+      append(boundSeq,'command.turn_bound',null,{commandId,turnId,acceptedSeq:command.accepted_seq,
+        textHash:createHash('sha256').update(text).digest('hex')});
       append(boundSeq+1,'turn.queued',turnId,{commandId});
       append(boundSeq+2,'user.message',turnId,{text});
       append(boundSeq+3,'turn.started',turnId,{commandId});
