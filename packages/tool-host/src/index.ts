@@ -137,6 +137,11 @@ export class ProcessToolHost {
     const registry = new ToolRegistry();
     const create = (name: string) => registry.register({
       name, version: '1', risk: 'read', concurrency: 'parallel',
+      description: name === 'read.echo' ? 'Return the provided text without external effects'
+        : 'Wait for a bounded delay without external effects',
+      inputSchema: name === 'read.echo'
+        ? {type:'object',properties:{text:{type:'string',maxLength:1024}},required:['text'],additionalProperties:false}
+        : {type:'object',properties:{ms:{type:'integer',minimum:0,maximum:1500}},required:['ms'],additionalProperties:false},
       parse: input => input,
       execute: async (input: unknown, signal: AbortSignal, context?: ToolExecutionContext) => {
         if (!context || context.sessionId !== lease.sessionId) {
