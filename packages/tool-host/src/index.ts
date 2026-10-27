@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { fork, type ChildProcess } from 'node:child_process';
+import { fork, spawn, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 import { ToolRegistry } from '../../tool-scheduler/src/index.js';
@@ -29,13 +31,16 @@ export class ProcessToolHost {
   private readonly child: ChildProcess;
   private readonly pending = new Map<string, Pending>();
   private ended = false;
+  private readonly sandboxed:boolean;
   private readonly ready: Promise<void>;
   private signalReady!: () => void;
   private rejectReady!: (error: Error) => void;
   private readySettled = false;
 
   /** A terminated worker leaves STARTED calls requiring reconciliation. */
-  constructor(databasePath: string, private readonly timeoutMs = 4000) {
+  constructor(databasePath: string, private readonly timeoutMs = 4000,
+    sandbox?: LinuxBubblewrapSandbox) {
+    this.sandboxed=sandbox!==undefined;
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
       throw new KernelError('HOST_INVALID_OPTIONS', 'Invalid Host database path or timeout');
     }
@@ -59,13 +64,23 @@ export class ProcessToolHost {
     // A worker can fail during startup even if nobody ever invokes it.
     void this.ready.catch(() => undefined);
     const worker = new URL('./worker.js', import.meta.url);
-    this.child = fork(worker, [databasePath], {
-      execArgv: [],
-      env: {}, // Do not forward credentials, NODE_OPTIONS, or model-controlled environment.
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
-      serialization: 'json',
-    });
-    this.child.on('message', (raw: unknown) => {
+    if(sandbox){
+      // A strict namespace launch must be prepared BEFORE any worker can run.
+      // No bwrap binary, bad mount allowlist or unsupported Linux => no fallback.
+      const compiledRoot=fileURLToPath(new URL('../../../',import.meta.url));
+      const launch=buildBubblewrapLaunch(sandbox,databasePath,compiledRoot,fileURLToPath(worker));
+      this.child=spawn(launch.executable,[...launch.argv],{
+        env:{},stdio:['pipe','pipe','ignore'],
+      });
+      this.child.stdout?.setEncoding('utf8');
+    }else{
+      this.child=fork(worker,[databasePath],{
+        execArgv:[],
+        env:{}, // Never forward credentials, NODE_OPTIONS or tool input as env.
+        stdio:['ignore','ignore','ignore','ipc'],serialization:'json',
+      });
+    }
+    const onMessage=(raw:unknown):void => {
       if (raw && typeof raw === 'object' && (raw as {type?: unknown}).type === 'ready') {
         if (!this.readySettled) {
           this.readySettled = true;
@@ -82,7 +97,24 @@ export class ProcessToolHost {
       else if (raw.code === 'LEASE_LOST') request.reject(new KernelError('LEASE_LOST', 'Host rejected writer token'));
       else request.reject(new KernelError('TOOL_OUTCOME_UNKNOWN',
         'Host rejected or did not confirm execution: ' + String(raw.code ?? 'UNKNOWN')));
-    });
+    };
+    if(sandbox){
+      let buffered='';
+      this.child.stdout?.on('data',(part:string)=>{
+        buffered+=part;
+        if(Buffer.byteLength(buffered,'utf8')>65536){this.close();return;}
+        let boundary:number;
+        while((boundary=buffered.indexOf('\n'))>=0){
+          const line=buffered.slice(0,boundary);buffered=buffered.slice(boundary+1);
+          if(Buffer.byteLength(line,'utf8')>32768){this.close();return;}
+          try{onMessage(JSON.parse(line) as unknown);}
+          catch{this.close();return;}
+        }
+      });
+      this.child.stdin?.on('error',()=>this.failAll());
+    }else{
+      this.child.on('message',onMessage);
+    }
     this.child.on('error', () => this.failAll());
     this.child.on('exit', () => this.failAll());
   }
@@ -94,7 +126,8 @@ export class ProcessToolHost {
     this.ended = true;
     if (!this.readySettled) {
       this.readySettled = true;
-      this.rejectReady(new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host failed before becoming ready'));
+      this.rejectReady(new KernelError(this.sandboxed?'HOST_SANDBOX_UNAVAILABLE':'TOOL_OUTCOME_UNKNOWN',
+        'Host failed before becoming ready'));
     }
     for (const request of this.pending.values()) {
       request.cleanup();
@@ -105,7 +138,7 @@ export class ProcessToolHost {
 
   async invoke(call: HostCall, signal: AbortSignal): Promise<string> {
     await this.ready;
-    if (this.ended || !this.child.connected) {
+    if (this.ended || (this.sandboxed?!this.child.stdin?.writable:!this.child.connected)) {
       throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Host process unavailable');
     }
     if (signal.aborted) throw new KernelError('TOOL_OUTCOME_UNKNOWN', 'Call already cancelled');
@@ -122,9 +155,13 @@ export class ProcessToolHost {
       const cleanup = (): void => { clearTimeout(timeout); signal.removeEventListener('abort', onAbort); };
       signal.addEventListener('abort', onAbort, { once: true });
       this.pending.set(id, {resolve, reject, cleanup});
-      this.child.send(payload, error => {
-        if (error) this.close();
-      });
+      if(this.sandboxed){
+        const wire=JSON.stringify(payload)+'\n';
+        if(Buffer.byteLength(wire,'utf8')>32768){this.close();return;}
+        this.child.stdin?.write(wire,(error)=>{if(error)this.close();});
+      }else{
+        this.child.send(payload,error=>{if(error)this.close();});
+      }
       if (signal.aborted) onAbort();
     });
   }
