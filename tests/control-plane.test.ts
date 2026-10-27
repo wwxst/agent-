@@ -251,3 +251,45 @@ test('M2 control: loopback server never exposes wildcard CORS, cookie sessions o
     assert.equal(read.headers.get('x-content-type-options'),'nosniff');
   }finally{await f.close();}
 });
+
+
+test('M2 control: duplicate Authorization headers are rejected even if one bearer is valid',async()=>{
+  const f=await fixture();
+  try{
+    const u=new URL(f.server.origin);
+    const result=await new Promise<{status:number;text:string}>((resolve,reject)=>{
+      const req=httpRequest({hostname:u.hostname,port:Number(u.port),path:base,method:'POST',
+        headers:['Host',u.host,
+          'Content-Type','application/json',
+          'Authorization','Bearer '+f.secret,
+          'Authorization','Bearer '+f.secret]},res=>{
+        const chunks:Buffer[]=[];
+        res.on('data',(c:Buffer)=>chunks.push(c));
+        res.on('end',()=>resolve({status:res.statusCode??0,text:Buffer.concat(chunks).toString()}));
+      });
+      req.on('error',reject);
+      req.end(JSON.stringify(acceptBody()));
+    });
+    assert.equal(result.status,401);
+    assert.equal(result.text.includes(f.secret),false);
+    const journal=new SqliteEventStore(f.db.path);
+    try{assert.equal((await journal.read('sessA')).length,1);}finally{journal.close();}
+  }finally{await f.close();}
+});
+
+test('M2 control: status refuses a forged Inbox row without matching accepted journal event',async()=>{
+  const f=await fixture();
+  try{
+    assert.equal((await json(f.server.origin,'POST',base,f.secret,acceptBody())).status,200);
+    const {DatabaseSync}=await import('node:sqlite');
+    const raw=new DatabaseSync(f.db.path);
+    try{
+      raw.prepare("UPDATE kernel_events SET data_json=? WHERE session_id=? AND seq=2")
+        .run(JSON.stringify({commandId:'imposter',kind:'turn.run',fingerprint:'tampered'}),'sessA');
+    }finally{raw.close();}
+    const result=await json(f.server.origin,'GET',base+'/cmdA',f.secret);
+    assert.equal(result.status,500);
+    assert.deepEqual(result.body,{error:'INTERNAL_ERROR'});
+    assert.equal(f.model.requests.length,0);
+  }finally{await f.close();}
+});
