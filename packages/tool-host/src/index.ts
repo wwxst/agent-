@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { readlinkSync } from 'node:fs';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
@@ -82,6 +83,23 @@ export class ProcessToolHost {
     }
     const onMessage=(raw:unknown):void => {
       if (raw && typeof raw === 'object' && (raw as {type?: unknown}).type === 'ready') {
+        if(this.sandboxed){
+          const entry=(raw as {namespaces?:unknown}).namespaces;
+          if(!entry || typeof entry!=='object' || Array.isArray(entry)){
+            this.close();return;
+          }
+          const namespaces=entry as Record<string,unknown>;
+          try{
+            for(const [key,linuxName] of Object.entries({
+              mount:'mnt',network:'net',pid:'pid',user:'user',
+            })){
+              const remote=namespaces[key],local=readlinkSync('/proc/self/ns/'+linuxName);
+              if(typeof remote!=='string'||!/^\\w+:\\[\\d+\\]$/.test(remote)||remote===local){
+                this.close();return;
+              }
+            }
+          }catch{this.close();return;}
+        }
         if (!this.readySettled) {
           this.readySettled = true;
           this.signalReady();
