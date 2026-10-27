@@ -52,6 +52,7 @@
 22. [M1 证据绑定人工复核记录](docs/18-M1-证据绑定人工审核记录.md)：审计 Hash 与审核记录在事务内绑定，缺少生产鉴权且不自动恢复。
 23. [M1 旧 PR #2 真实 Provider 与 CLI 移植](docs/19-M1-旧PR2-真实Provider和CLI整合.md)：SSE 适配、工具目录快照、用量/字符准入、无工具 CLI。
 24. [M2 Command Inbox 事务 ACK 与幂等](docs/20-M2-Command-Inbox-事务ACK与幂等.md)：Fencing 事务、CommandId 指纹去重、进程崩溃后重复 ACK；**不代表执行**。
+25. [M2 Steering 活动 Turn 指令与审计](docs/21-M2-Steering-活动Turn指令与审计.md)：活动 Turn FIFO 追加指令、持久队列、未消费输入恢复阻断。
 
 附加约束：
 
@@ -80,8 +81,9 @@
 - **M1 双账本只读对账（已合并 main）**：新增 `packages/tool-reconciliation`；只读事务同时快照 Kernel 与 Host，区分已验证、缺失收据、未开始证据、STARTED、冲突、孤儿 Host 等情况；强制 Receipt/Result 相邻，新增 12 项测试。
 - **M1 证据绑定人工复核（已合并 main）**：新增 `packages/recovery-review`，单事务检查全量双账本证据 Hash，插入不可变审核记录；不授予重试/恢复许可。修复 Tool Host 冷启动 Schema 初始化竞争，新增 11 项测试（含 10 轮冷启动测试）。
 - **M1 真实 Provider/CLI（已合并 main）**：选择性移植旧 PR #2 的 OpenAI Chat Completions SSE 与原生 Anthropic Messages SSE，新增每步只读工具目录快照、模型用量与预算、字符准入、基于 Fencing Runner 的文本 CLI；不移植旧 Kernel。新增 37 项离线/真实进程集成测试，累计 125 项。
-- **M2 Command Inbox（本轮分支）**：新增 `packages/command-inbox` 受租约保护的持久 Command ACK、SHA-256 指纹幂等、Session scoped `command.accepted` 事件，Runner 可接受控制消息但不会自动分发命令；新增 12 项故障测试。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 137 项；以当前提交 CI 为准。
+- **M2 Command Inbox（已合并 main）**：新增 `packages/command-inbox` 受租约保护的持久 Command ACK、SHA-256 指纹幂等、Session scoped `command.accepted` 事件，Runner 可接受控制消息但不会自动分发命令；新增 12 项故障测试。
+- **M2 Steering（本轮分支）**：新增在持有租约的活动 Turn 中持久排队指令，按下一模型步骤 FIFO 消费；未消费指令阻止会话重开和新 Command Inbox 接受，新增 9 项含独立 Host 的集成测试。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 146 项；以当前提交 CI 为准。
 - **仍未具备**：真实计费 API 端到端联调、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 

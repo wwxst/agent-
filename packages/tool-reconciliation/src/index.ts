@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { KernelError, type KernelEvent, type KernelEventType, type ToolResult } from '../../contracts/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
+import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
 import type { HostLedgerEntry } from '../../tool-host/src/ledger.js';
 
 export type ReconciliationStatus =
@@ -31,6 +32,7 @@ export interface ReconciliationCall {
 export interface ReconciliationReport {
   readonly sessionId: string;
   readonly lastSeq: number;
+  readonly unconsumedSteers: number;
   /** SHA-256 of complete event and Host records, including receipt content; never authorization. */
   readonly evidenceHash: string;
   readonly pendingTurnId?: string;
@@ -186,6 +188,7 @@ export function reconcileSnapshot(
 ): ReconciliationReport {
   const pendingTurnId = journalState(events, sessionId);
   const journal = inspectToolAudit(events);
+  const steering = inspectSteeringAudit(events);
   const receipts = new Map<string, Receipt>();
   for (const event of events) {
     if (event.type !== 'tool.receipt') continue;
@@ -244,7 +247,7 @@ export function reconcileSnapshot(
       hostState: host.state, status: 'orphan_host', requiresManualReview: true,
     });
   }
-  const requiresManualReview = Boolean(pendingTurnId)
+  const requiresManualReview = Boolean(pendingTurnId) || steering.unconsumedSteers>0
     || calls.some(item => item.requiresManualReview);
   const evidenceHash = createHash('sha256').update(JSON.stringify({
     sessionId,
@@ -253,7 +256,7 @@ export function reconcileSnapshot(
     hosts: [...hosts].sort((a,b) => a.turnId.localeCompare(b.turnId) || a.callId.localeCompare(b.callId)),
   })).digest('hex');
   return {
-    sessionId, lastSeq: events.length, evidenceHash,
+    sessionId, lastSeq: events.length, evidenceHash, unconsumedSteers:steering.unconsumedSteers,
     ...(pendingTurnId === undefined ? {} : { pendingTurnId }),
     calls, requiresManualReview,
     fullyVerified: !requiresManualReview,
