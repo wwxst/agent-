@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -211,4 +212,67 @@ test('M1 tool audit: legacy completed logs without intent remain readable',async
   ]);
   assert.deepEqual(inspectToolAudit(await store.read('legacy')),[]);
   assert.equal(await new AgentKernel(store,new FakeProvider([]),new ToolRegistry()).openSession('legacy'),'legacy');
+});
+
+test('M1 tool audit: real SIGKILL after committed intent is inspectable and not replayed', async () => {
+  const tmp = tempDb();
+  try {
+    const moduleUrl = new URL('../packages/event-store-sqlite/src/index.js', import.meta.url).href;
+    const child = `
+      const { SqliteEventStore } = await import(process.argv[1]);
+      const journal = new SqliteEventStore(process.argv[2]);
+      await journal.append('killed-after-intent', 0, [
+        { type: 'session.created', data: {} },
+        { type: 'turn.queued', turnId: 'crashed', data: {} },
+        { type: 'user.message', turnId: 'crashed', data: { text: 'run' } },
+        { type: 'turn.started', turnId: 'crashed', data: {} },
+        { type: 'assistant.message', turnId: 'crashed',
+          data: { role: 'assistant', text: '', toolCalls: [{ id: 'risk', name: 'read', arguments: {} }] } },
+        { type: 'tool.intent', turnId: 'crashed', data: { callId: 'risk', name: 'read', step: 1 } },
+      ]);
+      process.kill(process.pid, 'SIGKILL');
+    `;
+    const outcome = spawnSync(process.execPath, ['--input-type=module','-e',child,moduleUrl,tmp.path],
+      {encoding:'utf8',timeout:10000});
+    assert.equal(outcome.error,undefined,outcome.stderr);
+    assert.equal(outcome.signal,'SIGKILL',outcome.stderr);
+    const journal = new SqliteEventStore(tmp.path);
+    try {
+      const events = await journal.read('killed-after-intent');
+      assert.equal(events.at(-1)?.type,'tool.intent');
+      assert.deepEqual(inspectToolAudit(events).map(e=>({outcome:e.outcome,needs:e.needsReconciliation})),
+        [{outcome:'outcome_unknown',needs:true}]);
+    } finally {journal.close();}
+    let replayed=0;
+    const resumed = new ManagedSessionRunner(tmp.path,new FakeProvider([[toolMessage()]]),
+      readTools(async()=>{replayed++;return 'bad replay';}));
+    await assert.rejects(resumed.runTurn('killed-after-intent','again'),
+      {code:'RECOVERY_REQUIRED'});
+    assert.equal(replayed,0);
+  } finally {tmp.cleanup();}
+});
+
+test('M1 tool audit: even an artificially closed turn cannot hide a missing receipt', async () => {
+  const store = new MemoryEventStore();
+  await store.append('closed-without-receipt',0,[
+    {type:'session.created',data:{}},
+    {type:'turn.queued',turnId:'t',data:{}},
+    {type:'turn.started',turnId:'t',data:{}},
+    {type:'tool.intent',turnId:'t',data:{callId:'x',name:'read',step:1}},
+    {type:'turn.failed',turnId:'t',data:{errorCode:'CRASH'}},
+  ]);
+  const kernel = new AgentKernel(store,new FakeProvider([]),readTools());
+  await assert.rejects(kernel.openSession('closed-without-receipt'),{code:'RECOVERY_REQUIRED'});
+});
+
+test('M1 tool audit: receipt content mismatch invalidates log', () => {
+  const events: KernelEvent[] = [
+    {sessionId:'x',seq:1,eventId:'i',at:'now',type:'tool.intent',turnId:'t',
+      data:{callId:'x',name:'read',step:1}},
+    {sessionId:'x',seq:2,eventId:'r',at:'now',type:'tool.receipt',turnId:'t',
+      data:{callId:'x',name:'read',outcome:'succeeded',content:'original'}},
+    {sessionId:'x',seq:3,eventId:'c',at:'now',type:'tool.result',turnId:'t',
+      data:{callId:'x',name:'read',outcome:'succeeded',content:'tampered'}},
+  ];
+  assert.throws(()=>inspectToolAudit(events),{code:'CORRUPT_EVENT_LOG'});
 });
