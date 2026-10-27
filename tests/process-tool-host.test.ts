@@ -207,3 +207,50 @@ test('M1 Host: IPC timeout is an uncertain outcome, never a clean tool failure',
     try{assert.equal(ledger.inspect('timeout')[0]?.state,'started');}finally{ledger.close();}
   }finally{host.close();leases.close();tmp.cleanup();}
 });
+
+
+test('M1 Host: acknowledged Host completion without Kernel receipt still blocks automatic replay',async()=>{
+  const tmp=tempDb(),leases=new SqliteWriterLeaseStore(tmp.path);
+  const host=new ProcessToolHost(tmp.path);
+  try {
+    const lease=leases.acquire('host-ack-gap','first',5000);
+    assert.ok(lease);
+    const call=await journalWithIntent(tmp.path,lease,'read.echo',{text:'completed in host'});
+    assert.equal(await host.invoke(call,new AbortController().signal),'completed in host');
+    // Emulate kernel crash before persisting tool.receipt/tool.result.
+    host.close();
+    const ledger=new HostExecutionLedger(tmp.path);
+    const journal=new SqliteEventStore(tmp.path);
+    try {
+      assert.equal(ledger.inspect('host-ack-gap')[0]?.state,'succeeded');
+      assert.equal(inspectToolAudit(await journal.read('host-ack-gap'))[0]?.needsReconciliation,true);
+      assert.equal((await journal.read('host-ack-gap')).filter(e=>e.type==='tool.receipt').length,0);
+    }finally{ledger.close();journal.close();}
+    assert.equal(leases.release(lease),true);
+    const next=leases.acquire('host-ack-gap','successor',5000);
+    assert.ok(next);
+    const reopened=new ProcessToolHost(tmp.path);
+    try {
+      await assert.rejects(reopened.invoke({...call,lease:next},new AbortController().signal),
+        {code:'TOOL_OUTCOME_UNKNOWN'});
+    }finally{reopened.close();}
+    const runner=new ManagedSessionRunner(tmp.path,new FakeProvider([[complete()]]),
+      nextLease=>reopened.createRegistry(nextLease));
+    await assert.rejects(runner.runTurn('host-ack-gap','retry?'),{code:'SESSION_BUSY'});
+    assert.equal(leases.release(next),true);
+    await assert.rejects(runner.runTurn('host-ack-gap','retry?'),{code:'RECOVERY_REQUIRED'});
+  }finally{host.close();leases.close();tmp.cleanup();}
+});
+
+test('M1 Host: malformed arguments never create a started ledger row',async()=>{
+  const tmp=tempDb(),leases=new SqliteWriterLeaseStore(tmp.path),host=new ProcessToolHost(tmp.path);
+  try {
+    const lease=leases.acquire('bad-args','worker',5000);
+    assert.ok(lease);
+    const call=await journalWithIntent(tmp.path,lease,'read.sleep',{ms:50000});
+    await assert.rejects(host.invoke(call,new AbortController().signal),
+      {code:'TOOL_OUTCOME_UNKNOWN'});
+    const ledger=new HostExecutionLedger(tmp.path);
+    try {assert.deepEqual(ledger.inspect('bad-args'),[]);}finally{ledger.close();}
+  }finally{host.close();leases.close();tmp.cleanup();}
+});
