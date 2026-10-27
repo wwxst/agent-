@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync,existsSync,realpathSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync,renameSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {test} from 'node:test';
 import {SqliteEventStore} from '../packages/event-store-sqlite/src/index.js';
-import {ProcessToolHost} from '../packages/tool-host/src/index.js';
 import {inspectCgroupV2From,inspectCurrentCgroupV2,readUnifiedCgroupPath,
   startEnforcedToolHost} from '../packages/tool-host/src/enforced.js';
 
@@ -91,11 +90,13 @@ test('M3 cgroup: invalid controller data and missing control file always fail cl
 test('M3 cgroup: symlink escape cannot read limits outside an attested mount',()=>{
   const f=fixture();
   try{
-    const {symlinkSync,renameSync}=awaitNoop();
-    void symlinkSync;void renameSync;
+    renameSync(f.leaf,f.leaf+'-real');
+    symlinkSync('/etc',f.leaf);
+    assert.throws(()=>inspectCgroupV2From('0::/service/kernel',f.mount),{
+      code:'HOST_CGROUP_UNAVAILABLE',
+    });
   }finally{f.done();}
 });
-function awaitNoop(){return {symlinkSync:()=>undefined,renameSync:()=>undefined};}
 
 test('M3 enforced: missing sandbox/budget is rejected BEFORE launching any worker',async()=>{
   const f=dbFixture();
@@ -136,6 +137,8 @@ test('M3 enforced: existing bounded cgroup does not authorize an invalid sandbox
   let limits;
   try{limits=inspectCurrentCgroupV2();}
   catch{return t.skip('CI parent lacks finite cgroup v2 memory, pids and CPU quotas');}
+  if(limits.memoryBytes>64*1024*1024*1024 || limits.pids>4096 || limits.cpuMillicores>128000)
+    return t.skip('Parent cgroup exceeds deployment policy configuration range');
   const f=dbFixture();
   try{
     await assert.rejects(startEnforcedToolHost({
