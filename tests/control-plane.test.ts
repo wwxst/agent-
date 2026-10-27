@@ -125,7 +125,7 @@ test('M2 control: session scope and permissions are independently enforced',asyn
 test('M2 control: hostile Host and browser Origin are refused even with a valid token',async()=>{
   const f=await fixture();
   try{
-    const host=await json(f.server.origin,'POST',base,f.secret,acceptBody(),'',{Host:'attacker.example'} as never);
+    const host=await json(f.server.origin,'POST',base,f.secret,acceptBody(),{Host:'attacker.example'});
     assert.equal(host.status,400);
     const origin=await json(f.server.origin,'POST',base,f.secret,acceptBody(),{Origin:'https://attacker.example'});
     assert.equal(origin.status,400);
