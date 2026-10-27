@@ -3,6 +3,7 @@ import { type AssistantMessage, type ContextMessage, type EventDraft, type Event
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectTurnBindings } from '../../command-dispatcher/src/audit.js';
 import { admitContext, type ContextCompactor } from '../../context-engine/src/index.js';
 import { inspectContextCheckpoints, safeCompletedPrefix, hashContextSource } from '../../context-engine/src/checkpoint.js';
 
@@ -105,7 +106,7 @@ export class AgentKernel {
           continue;
         }
         // Control-plane ACK is session-scoped and never a ToolCall or Turn.
-        if (e.type === 'command.accepted') {
+        if (e.type === 'command.accepted' || e.type === 'command.turn_bound') {
           if (e.turnId !== undefined) throw new KernelError('CORRUPT_EVENT_LOG', 'Command ACK must not have turnId');
           continue;
         }
@@ -121,6 +122,7 @@ export class AgentKernel {
           }
         }
       }
+      inspectTurnBindings(events);
       const audit = inspectToolAudit(events);
       const steering = inspectSteeringAudit(events);
       inspectContextCheckpoints(events);
