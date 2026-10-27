@@ -80,12 +80,18 @@ export function inspectToolAudit(events: readonly KernelEvent[]): readonly ToolA
     } else if (existing) {
       // New-format tool.result must follow its durable receipt.
       if (existing.receiptSeq === undefined || existing.seenResult
+        || event.seq !== existing.receiptSeq + 1
         || existing.name !== name || existing.outcome !== data.outcome
         || existing.receiptContent !== data.content) {
         return corrupt('Tool result does not match its receipt');
       }
       existing.seenResult = true;
     }
+  }
+  // Kernel writes receipt + context result in one atomic append batch;
+  // a lone receipt never proves the context-visible result was committed.
+  if (ordered.some(entry => entry.receiptSeq !== undefined && !entry.seenResult)) {
+    return corrupt('Tool receipt missing its matching result');
   }
   return ordered.map(entry => ({
     turnId: entry.turnId, callId: entry.callId, name: entry.name,
