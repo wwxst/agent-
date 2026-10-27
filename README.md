@@ -4,7 +4,7 @@
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner、持久 Intent/Receipt，并新增真正独立 Node 子进程的只读 Tool Host 与 Host 自身的执行账本。** OS 沙箱、未决 Turn 自动修复/重放协议、审核者生产鉴权和外部副作用幂等仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)及[子进程 Tool Host](docs/16-M1-子进程ToolHost-与执行账本.md)及[双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)及[证据绑定人工复核](docs/18-M1-证据绑定人工审核记录.md)。
+**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner、持久 Intent/Receipt，并新增真正独立 Node 子进程的只读 Tool Host 与 Host 自身的执行账本。** M3 已提供显式 Linux Bubblewrap namespace、cgroup 安全入口和初步 seccomp 拒绝策略，但尚非默认全局强制或完整生产级 OS 沙箱；未决 Turn 自动修复/重放、审核者生产鉴权与外部副作用幂等仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)及[子进程 Tool Host](docs/16-M1-子进程ToolHost-与执行账本.md)及[双账本只读对账](docs/17-M1-双账本只读对账与证据判定.md)及[证据绑定人工复核](docs/18-M1-证据绑定人工审核记录.md)。
 
 ## 一、项目目标
 
@@ -64,6 +64,7 @@
 34. [M3 独立 Worker cgroup 与整组清理](docs/30-M3-独立Worker-cgroup与整组终止边界.md)：受信 Supervisor 预设空独立叶子组，迁组后启动 Bubblewrap，cgroup.kill 整组终止；真机迁组正向验证待补。
 35. [M3 Tool Host 内核侧进程身份验证](docs/31-M3-ToolHost-内核侧进程身份验证.md)：父进程独立核验 Worker 进程血缘、可执行代码与 namespace inode；PID 启动版本复核与 READY 伪造拒绝。
 36. [M3 Linux seccomp 网络与特权调用限制](docs/32-M3-Linux-Seccomp-网络与特权调用限制.md)：显式 x86-64 BPF syscall 拒绝、匿名 FD3 传入 Bubblewrap、Worker 内核过滤模式确认与真实 socket EPERM 验证。
+37. [M3 受控部署入口强制 seccomp](docs/33-M3-生产安全入口强制Seccomp与配置拒绝.md)：资源受限 Host 工厂必须同时验证 seccomp 配置与 cgroup，禁止调用方伪造内部迁组元数据。
 
 附加约束：
 
@@ -104,9 +105,10 @@
 - **M3 安全部署入口（已合并 main）**：新增 `startEnforcedToolHost`，要求 Linux Bubblewrap 以及已由宿主内核强制的 CPU/内存/PID cgroup v2 共享额度，验证命名空间 READY 和 launcher cgroup 归属；不满足条件坚决拒绝，不提供默认降级。新增 11 项测试。
 - **M3 Worker 独立 cgroup（已合并 main）**：新增 `startDedicatedToolHost`、受信 `cgroup-launcher` 先迁组再启动 Bubblewrap、独立叶子直接有限额度和空组强制检查、整组 `cgroup.kill` 退出与清理故障报告；新增 11 项策略/真实拒绝测试。尚无真实成功委派 cgroup 环境的正向验收。
 - **M3 Tool Host 内核身份校验（已合并 main）**：不再单纯相信 Worker READY 自报 namespace；父进程检查 Linux /proc 中唯一 Node Worker 的祖先关系、exe、真实编译入口和 namespace inode，并用 PID starttime 防替换，执行前重检。新增 8 项伪造身份与退出测试，现有真实 Bubblewrap 端到端加入 OS 身份验证断言。
-- **M3 Linux x86-64 seccomp（本轮分支）**：新增 opt-in `seccompPolicy:'network-and-privilege-deny-v1'`，构建固定 cBPF，匿名 FD3 传入 Bubblewrap，拒绝网络 socket/ptrace/namespace 等敏感 syscall；READY 和调用前查 Linux 内核过滤状态。新增 9 项测试，含真实 socket `EPERM` 和过滤下持久 Tool Receipt。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 255 项；新增 seccomp 正向测试在受支持的 Linux Runner 运行，既有无 cgroup 有限额度条件测试会明确跳过。
-- **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/seccomp/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M3 Linux x86-64 seccomp（已合并 main）**：新增 opt-in `seccompPolicy:'network-and-privilege-deny-v1'`，构建固定 cBPF，匿名 FD3 传入 Bubblewrap，拒绝网络 socket/ptrace/namespace 等敏感 syscall；READY 和调用前查 Linux 内核过滤状态。新增 9 项测试，含真实 socket `EPERM` 和过滤下持久 Tool Receipt。
+- **M3 安全工厂策略硬化（本轮分支）**：`startEnforcedToolHost`、`startDedicatedToolHost` 强制 Linux x86-64 已审核的 seccomp 配置，不支持则启动前拒绝；两个工厂拒绝外部注入的内部 `dedicatedCgroup` 描述，底层专有组构造器也不再接受未过滤路径。新增 9 项 fail-closed 测试，保留普通旧 Host 兼容。
+- **自动验证**：GitHub Actions Node 22.16.0 与 Node 22.x 运行 `npm run check` 和 `npm test`，目标累计 264 项；既有 1 项实际 inherited cgroup 正向验证在 CI 可能条件跳过。
+- **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/完整 seccomp allowlist/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
