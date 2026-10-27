@@ -62,7 +62,7 @@ function cpuLimit(text:string):number{
   if(match[1]==='max')return Infinity;
   const quota=bound(match[1]!);
   const period=bound(match[2]!);
-  const millicores=Math.floor(quota*1000/period);
+  const millicores=Math.ceil(quota*1000/period);
   if(!Number.isSafeInteger(millicores)||millicores<1)return unavailable('Invalid CPU quota ratio');
   return millicores;
 }
