@@ -3,6 +3,9 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 import { ToolRegistry } from '../../tool-scheduler/src/index.js';
+import { SqliteWriterLeaseStore } from '../../session-leases-sqlite/src/index.js';
+import { SqliteEventStore } from '../../event-store-sqlite/src/index.js';
+import { HostExecutionLedger } from './ledger.js';
 import type { HostCall } from './ledger.js';
 
 interface Pending {
@@ -35,6 +38,19 @@ export class ProcessToolHost {
   constructor(databasePath: string, private readonly timeoutMs = 4000) {
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
       throw new KernelError('HOST_INVALID_OPTIONS', 'Invalid Host database path or timeout');
+    }
+    // Ensure all three schema boundaries are initialized BEFORE forking a
+    // worker. Previously worker, lease store and journal could race through
+    // SQLite's first WAL/schema setup and intermittently reject a safe call.
+    // This is only schema bootstrapping, NOT a lease or execution admission.
+    const leases = new SqliteWriterLeaseStore(databasePath);
+    try {
+      const journal = new SqliteEventStore(databasePath);
+      journal.close();
+      const ledger = new HostExecutionLedger(databasePath);
+      ledger.close();
+    } finally {
+      leases.close();
     }
     this.ready = new Promise<void>((resolve, reject) => {
       this.signalReady = resolve;
