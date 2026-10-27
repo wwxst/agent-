@@ -26,6 +26,7 @@
 | M1-15 | [Tool Intent/Receipt 执行审计](15-M1-Tool-Intent-Receipt-执行审计.md) | 执行前持久化、单项收据、结果未知时拒绝重放；仅可信只读工具 |
 | M1-16 | [子进程 Tool Host 与执行账本](16-M1-子进程ToolHost-与执行账本.md) | 独立 Node 子进程、Host 侧 Intent/Fence、STARTED 台账，尚无 OS 沙箱 |
 | M1-17 | [双账本只读对账与证据判定](17-M1-双账本只读对账与证据判定.md) | SQLite 一致只读快照、证据归类与强制无盲目重试 |
+| M1-18 | [证据绑定人工复核记录](18-M1-证据绑定人工审核记录.md) | 审核理由/身份字段、Hash CAS、不可变持久记录；尚无生产鉴权和恢复授权 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
@@ -52,4 +53,4 @@
 
 ## 建议从哪里开始
 
-当前 M0 已有可运行的单 Agent 状态机与确定性测试；M1 的 session 重开和 SQLite WAL 日志已有增量代码。下一步优先为现有子进程 Tool Host 添加 OS 权限隔离、Host 鉴权及基于已实现只读对账的受控恢复/审批，不是先做 UI 或放开不受信任工具执行。
+当前 M0 已有可运行的单 Agent 状态机与确定性测试；M1 的 session 重开和 SQLite WAL 日志已有增量代码。下一步优先建立真实 Reviewer 鉴权、OS 权限隔离与可验证的高风险工具审批；目前审核记录不授予自动恢复执行权限，不是先做 UI 或放开不受信任工具执行。
