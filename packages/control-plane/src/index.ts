@@ -98,6 +98,12 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
   if(!Number.isInteger(port)||port<0||port>65535)
     throw new KernelError('INVALID_CONTROL_CONFIG','Invalid loopback port');
   const auth=new ControlKeyring(options.principals);
+  // Schema bootstrap happens exactly once before listening, never in GET.
+  const bootstrapInbox=new SqliteCommandInbox(options.databasePath);
+  try {
+    const bootstrapDispatcher=new SqliteCommandDispatcher(options.databasePath);
+    bootstrapDispatcher.close();
+  } finally { bootstrapInbox.close(); }
   let boundPort=0;
   const server=createServer((req,res)=>{
     void (async()=>{
@@ -119,12 +125,12 @@ export async function startLoopbackControlServer(options:ControlServerOptions):P
       if(req.method==='GET'){
         if(req.headers['content-length'] || req.headers['transfer-encoding'])
           throw new KernelError('INVALID_HTTP_BODY','GET cannot carry a request body');
-        const dispatcher=new SqliteCommandDispatcher(options.databasePath);
+        const dispatcher=new SqliteCommandDispatcher(options.databasePath,{readOnly:true});
         try{
           const found=dispatcher.inspect(sessionId,commandId!);
           if(found)return send(res,200,{dispatch:safeDispatch(found)});
         }finally{dispatcher.close();}
-        const inbox=new SqliteCommandInbox(options.databasePath);
+        const inbox=new SqliteCommandInbox(options.databasePath,{readOnly:true});
         try{
           const accepted=inbox.inspectAccepted(sessionId,commandId!);
           if(accepted)return send(res,200,{command:{
