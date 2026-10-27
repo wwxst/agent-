@@ -1,4 +1,4 @@
-import {accessSync, constants, realpathSync, statSync} from 'node:fs';
+import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync} from 'node:fs';
 import {isAbsolute, relative, resolve, dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 
@@ -78,6 +78,18 @@ export function buildBubblewrapLaunch(
     '--proc','/proc','--dev','/dev','--tmpfs','/tmp',
   ];
   for(const path of runtime)argv.push('--ro-bind',path,path);
+  // On merged-/usr Linux distributions the ELF loader still references
+  // /lib64 or /lib. Recreate ONLY system aliases whose targets are already
+  // inside an explicitly allowlisted read-only mount (never expose /).
+  for(const alias of ['/bin','/lib','/lib64','/sbin']){
+    try{
+      if(!lstatSync(alias).isSymbolicLink())continue;
+      const target=realpathSync(alias);
+      if(!runtime.some(root=>within(target,root)))continue;
+      const raw=readlinkSync(alias);
+      argv.push('--symlink',raw,alias);
+    }catch{/* Missing optional compatibility alias. */}
+  }
   argv.push('--ro-bind',app,app,'--bind',dbDir,dbDir,
     '--chdir',app,'--',node,worker,db);
   return {executable:binary,argv};
