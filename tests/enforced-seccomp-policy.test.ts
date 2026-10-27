@@ -59,7 +59,8 @@ test('M3 shared resource-gated factory: missing seccomp fails before reading cgr
         databasePath:f.db,
         requiredBudget:quota,
         sandbox:{binaryPath:'/nonexistent/bwrap',
-          runtimeReadOnlyDirectories:['/usr'],seccompPolicy},
+          runtimeReadOnlyDirectories:['/usr'],
+          ...(seccompPolicy===undefined?{}:{seccompPolicy})},
       }),{code:'HOST_SECCOMP_UNAVAILABLE'});
       assert.equal(existsSync(f.db),false);
     }
