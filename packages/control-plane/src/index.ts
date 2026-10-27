@@ -27,7 +27,6 @@ function send(res:ServerResponse,status:number,body:Record<string,unknown>):void
     'Pragma':'no-cache',
     'X-Content-Type-Options':'nosniff',
     'Referrer-Policy':'no-referrer',
-    'Access-Control-Allow-Origin':'null',
     'Connection':'close',
   });
   res.end(JSON.stringify(body));
