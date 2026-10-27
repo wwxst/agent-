@@ -4,6 +4,7 @@ import { ConflictError, KernelError, type KernelEvent } from '../../contracts/sr
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import { inspectSteeringAudit } from '../../steering-audit/src/index.js';
+import { inspectTurnBindings } from '../../command-dispatcher/src/audit.js';
 import { inspectContextCheckpoints } from '../../context-engine/src/checkpoint.js';
 
 const MAX_PAYLOAD_BYTES = 64*1024;
@@ -59,7 +60,7 @@ function canonical(value:unknown):string {
   return json;
 }
 
-function verifyJournal(events:readonly KernelEvent[],sessionId:string):void {
+export function verifyJournal(events:readonly KernelEvent[],sessionId:string):void {
   if(events[0]?.type!=='session.created')
     throw new KernelError('UNKNOWN_SESSION','Missing session creation event');
   const seen=new Set<string>();
@@ -72,7 +73,7 @@ function verifyJournal(events:readonly KernelEvent[],sessionId:string):void {
       if(e.turnId!==undefined) throw new KernelError('CORRUPT_EVENT_LOG','Invalid creation');
       continue;
     }
-    if(e.type==='command.accepted'){
+    if(e.type==='command.accepted' || e.type==='command.turn_bound'){
       if(e.turnId!==undefined) throw new KernelError('CORRUPT_EVENT_LOG','Command ACK cannot impersonate a Turn');
       continue;
     }
@@ -87,6 +88,7 @@ function verifyJournal(events:readonly KernelEvent[],sessionId:string):void {
     }
   }
   inspectContextCheckpoints(events);
+  inspectTurnBindings(events);
   if(active || inspectToolAudit(events).some(x=>x.needsReconciliation)
     || inspectSteeringAudit(events).unconsumedSteers>0)
     throw new KernelError('RECOVERY_REQUIRED','Unsettled turn or ToolCall blocks new command admission');
