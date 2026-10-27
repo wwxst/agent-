@@ -144,7 +144,8 @@ test('M3 enforced: existing bounded cgroup does not authorize an invalid sandbox
   try{
     await assert.rejects(startEnforcedToolHost({
       databasePath:f.path,
-      sandbox:{binaryPath:'/forged/bwrap',runtimeReadOnlyDirectories:['/usr']},
+      sandbox:{binaryPath:'/forged/bwrap',runtimeReadOnlyDirectories:['/usr'],
+        seccompPolicy:'network-and-privilege-deny-v1'},
       requiredBudget:{
         maxMemoryBytes:Math.max(limits.memoryBytes,16*1024*1024),
         maxPids:Math.max(limits.pids,1),
