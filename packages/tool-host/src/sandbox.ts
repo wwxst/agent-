@@ -1,6 +1,7 @@
 import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync} from 'node:fs';
 import {isAbsolute, relative, dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
+import type {CgroupBudget} from './enforced.js';
 
 /**
  * Strict Linux-only namespace launch. This API is for TRUSTED host configuration,
@@ -17,6 +18,8 @@ export interface LinuxBubblewrapSandbox {
   readonly privateTmpBytes?:number;
   /** Startup/namespace attestation deadline in milliseconds. */
   readonly startupTimeoutMs?:number;
+  /** Only set by trusted dedicated-cgroup deployment entry. */
+  readonly dedicatedCgroup?:Readonly<{relativePath:string;budget:CgroupBudget}>;
 }
 export interface BubblewrapLaunch {
   readonly executable:string;
