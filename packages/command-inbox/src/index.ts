@@ -143,6 +143,15 @@ export class SqliteCommandInbox {
       if(prior){
         if(prior.fingerprint!==fingerprint || prior.kind!==kind)
           throw new ConflictError('Command ID collision with different content');
+        const ack=this.db.prepare(`
+          SELECT type,turn_id,data_json FROM kernel_events
+          WHERE session_id=? AND seq=?
+        `).get(lease.sessionId,prior.accepted_seq);
+        if(!ack || ack.type!=='command.accepted' || ack.turn_id!==null)
+          throw new KernelError('CORRUPT_EVENT_LOG','Accepted command missing journal ACK');
+        const data=JSON.parse(ack.data_json as string) as Record<string,unknown>;
+        if(data.commandId!==commandId || data.kind!==kind || data.fingerprint!==fingerprint)
+          throw new KernelError('CORRUPT_EVENT_LOG','Persisted command ACK mismatch');
         this.db.exec('COMMIT');
         return {sessionId:lease.sessionId,commandId,kind,fingerprint,
           acceptedSeq:prior.accepted_seq as number,replayed:true};
@@ -158,6 +167,19 @@ export class SqliteCommandInbox {
         type:row.type as KernelEvent['type'],data:JSON.parse(row.data_json as string),at:row.occurred_at as string,
       }));
       verifyJournal(events,lease.sessionId);
+      // Detect orphaned, deleted or tampered ACK rows before admitting more
+      // commands. All checks share the admission transaction snapshot.
+      for(const e of events.filter(item=>item.type==='command.accepted')){
+        if(!e.data || typeof e.data!=='object') throw new KernelError('CORRUPT_EVENT_LOG','Bad command ACK');
+        const data=e.data as Record<string,unknown>;
+        const row=this.db.prepare(`
+          SELECT command_id,kind,fingerprint,accepted_seq FROM session_commands
+          WHERE session_id=? AND accepted_seq=?
+        `).get(lease.sessionId,e.seq);
+        if(!row || row.command_id!==data.commandId || row.kind!==data.kind
+          || row.fingerprint!==data.fingerprint || row.accepted_seq!==e.seq)
+          throw new KernelError('CORRUPT_EVENT_LOG','Command ACK and Inbox ledger diverged');
+      }
       if(expectedSeq!==events.length) throw new ConflictError('Stale command admission journal cursor');
 
       const acceptedSeq=events.length+1;
