@@ -34,6 +34,7 @@
 | M2-23 | [Command Dispatcher 原子 Turn 绑定](23-M2-Command-Dispatcher-持久Turn绑定与重放阻断.md) | 持久 CommandId→TurnId、单次执行、跨崩溃只读状态、无自动重放 |
 | M2-24 | [本地认证控制面与 Session 权限](24-M2-本地认证控制面与Session权限.md) | Loopback Bearer 认证、逐 Session 能力授权、隐私元数据响应；非生产级远端网关 |
 | M2-25 | [持久凭据轮换撤销与授权审计](25-M2-持久凭据轮换撤销与授权审计.md) | 可信本地管理、SQLite 密钥版本 CAS、永久撤销和 fail-closed 授权决策审计 |
+| M2-26 | [执行期间授权撤销与协作中断](26-M2-执行期间授权撤销与协作中断.md) | HTTP Grant 版本绑定、周期重检及模型/工具栅栏、未决 Turn 保守审计 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
