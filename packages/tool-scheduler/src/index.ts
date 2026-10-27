@@ -34,9 +34,13 @@ export function preflight(calls: readonly ToolCall[], registry: ToolRegistry): r
   });
 }
 
-async function invoke(item: Prepared, signal: AbortSignal): Promise<ToolResult> {
+async function invoke(item: Prepared, signal: AbortSignal, assertLease?: () => void): Promise<ToolResult> {
   if (item.immediate) return item.immediate;
   if (!item.definition) throw new Error('preflight invariant broken');
+  if (signal.aborted) return errorResult(item.call, 'failed', 'CANCELLED_BEFORE_EXECUTION');
+  // Do NOT catch a lease failure and turn it into an ordinary tool failure.
+  // Owner loss must propagate to the Kernel without executing the body.
+  assertLease?.();
   if (signal.aborted) return errorResult(item.call, 'failed', 'CANCELLED_BEFORE_EXECUTION');
   try {
     const text = await item.definition.execute(item.input, signal);
@@ -47,22 +51,30 @@ async function invoke(item: Prepared, signal: AbortSignal): Promise<ToolResult> 
 }
 
 /** Preflight is synchronous and ordered. Parallel read bodies run together; exclusive tools are barriers. */
-export async function executeBatch(calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal): Promise<readonly ToolResult[]> {
+export async function executeBatch(calls: readonly ToolCall[], registry: ToolRegistry, signal: AbortSignal, assertLease?: () => void): Promise<readonly ToolResult[]> {
   const prepared = preflight(calls, registry);
   const results: ToolResult[] = new Array(prepared.length);
   let group: Array<{ index: number; item: Prepared }> = [];
   const flush = async (): Promise<void> => {
     const tasks = group;
     group = [];
-    const settled = await Promise.all(tasks.map(async ({ index, item }) => ({ index, value: await invoke(item, signal) })));
-    for (const { index, value } of settled) results[index] = value;
+    // Drain all in-flight read calls before propagating lease failure so a
+    // runner does not release the claim while parallel reads are still active.
+    const settled = await Promise.allSettled(tasks.map(async ({ index, item }) => ({
+      index, value: await invoke(item, signal, assertLease),
+    })));
+    for (const item of settled) {
+      if (item.status === 'fulfilled') results[item.value.index] = item.value.value;
+    }
+    const rejected = settled.find(item => item.status === 'rejected');
+    if (rejected?.status === 'rejected') throw rejected.reason;
   };
   for (let index = 0; index < prepared.length; index++) {
     const item = prepared[index]!;
     if (item.immediate) { results[index] = item.immediate; continue; }
     if (item.definition?.concurrency === 'exclusive') {
       await flush();
-      results[index] = await invoke(item, signal);
+      results[index] = await invoke(item, signal, assertLease);
     } else group.push({ index, item });
   }
   await flush();
