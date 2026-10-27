@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { KernelError, type KernelEvent, type KernelEventType, type ToolResult } from '../../contracts/src/index.js';
 import { inspectToolAudit } from '../../tool-audit/src/index.js';
 import type { HostLedgerEntry } from '../../tool-host/src/ledger.js';
@@ -30,6 +31,8 @@ export interface ReconciliationCall {
 export interface ReconciliationReport {
   readonly sessionId: string;
   readonly lastSeq: number;
+  /** SHA-256 of complete event and Host records, including receipt content; never authorization. */
+  readonly evidenceHash: string;
   readonly pendingTurnId?: string;
   readonly calls: readonly ReconciliationCall[];
   readonly requiresManualReview: boolean;
@@ -114,14 +117,33 @@ export class SqliteToolReconciler {
     if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'sessionId required');
     this.db.exec('BEGIN');
     try {
-      const journalTable = this.db.prepare(
+      const report = inspectConnectionSnapshot(this.db, sessionId);
+      this.db.exec('COMMIT');
+      return report;
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  close(): void { this.db.close(); }
+}
+
+/**
+ * Caller must own a SQLite transaction: SELECTs of both ledgers must use one
+ * snapshot. Writable review transactions use BEGIN IMMEDIATE; read-only
+ * observers use BEGIN. Never export an unfenced multi-query reader.
+ */
+export function inspectConnectionSnapshot(db: DatabaseSync, sessionId: string): ReconciliationReport {
+  if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'sessionId required');
+      const journalTable = db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='kernel_events'"
       ).get();
       if (!journalTable) throw new KernelError('UNKNOWN_SESSION', 'No Kernel journal in database');
-      const hostTable = this.db.prepare(
+      const hostTable = db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_tool_executions'"
       ).get();
-      const raw = this.db.prepare(`
+      const raw = db.prepare(`
         SELECT session_id, seq, event_id, turn_id, type, data_json, occurred_at
         FROM kernel_events WHERE session_id = ? ORDER BY seq
       `).all(sessionId);
@@ -136,7 +158,7 @@ export class SqliteToolReconciler {
       }));
       // Legacy sessions may never have initialized the Host ledger table.
       // Missing table means no Host attestation, not permission to replay.
-      const hostRows = hostTable ? this.db.prepare(`
+      const hostRows = hostTable ? db.prepare(`
         SELECT session_id, turn_id, call_id, tool_name, fence_token, state, content
         FROM host_tool_executions WHERE session_id = ? ORDER BY turn_id,call_id
       `).all(sessionId) : [];
@@ -149,16 +171,7 @@ export class SqliteToolReconciler {
         state: row.state as HostLedgerEntry['state'],
         content: row.content as string | null,
       }));
-      const report = reconcileSnapshot(sessionId, events, hosts);
-      this.db.exec('COMMIT');
-      return report;
-    } catch (error) {
-      if (this.db.isTransaction) this.db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  close(): void { this.db.close(); }
+      return reconcileSnapshot(sessionId, events, hosts);
 }
 
 /** Pure decision function for deterministic recovery tests and other adapters. */
@@ -229,8 +242,14 @@ export function reconcileSnapshot(
   }
   const requiresManualReview = Boolean(pendingTurnId)
     || calls.some(item => item.requiresManualReview);
+  const evidenceHash = createHash('sha256').update(JSON.stringify({
+    sessionId,
+    events: events.map(event => ({ eventId: event.eventId, seq: event.seq,
+      turnId: event.turnId ?? null, type: event.type, data: event.data, at: event.at })),
+    hosts: [...hosts].sort((a,b) => a.turnId.localeCompare(b.turnId) || a.callId.localeCompare(b.callId)),
+  })).digest('hex');
   return {
-    sessionId, lastSeq: events.length,
+    sessionId, lastSeq: events.length, evidenceHash,
     ...(pendingTurnId === undefined ? {} : { pendingTurnId }),
     calls, requiresManualReview,
     fullyVerified: !requiresManualReview,

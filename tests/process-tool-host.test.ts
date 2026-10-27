@@ -254,3 +254,34 @@ test('M1 Host: malformed arguments never create a started ledger row',async()=>{
     try {assert.deepEqual(ledger.inspect('bad-args'),[]);}finally{ledger.close();}
   }finally{host.close();leases.close();tmp.cleanup();}
 });
+
+
+test('M1 Host: repeated cold-start races must not return false outcome_unknown',async()=>{
+  for(let round=0;round<10;round++){
+    const tmp=tempDb();
+    const host=new ProcessToolHost(tmp.path);
+    try {
+      const provider=new FakeProvider([[
+        {type:'message_complete',message:{role:'assistant',text:'',toolCalls:[
+          {id:'once',name:'read.echo',arguments:{text:'boot:'+round}},
+        ]},finishReason:'tool_use'},
+      ],[complete()]]);
+      const runner=new ManagedSessionRunner(tmp.path,provider,lease=>host.createRegistry(lease));
+      await runner.createSession('cold-start');
+      let result;
+      try {
+        result=await runner.runTurn('cold-start','do echo','first');
+      } catch(error) {
+        const ledger=new HostExecutionLedger(tmp.path);
+        const journal=new SqliteEventStore(tmp.path);
+        try{
+          const events=await journal.read('cold-start');
+          assert.fail('Cold-start Tool Host rejected a read-only call: '+String(error)+
+            ' hostStates='+JSON.stringify(ledger.inspect('cold-start').map(e=>e.state))+
+            ' eventTypes='+JSON.stringify(events.map(e=>e.type)));
+        }finally{ledger.close();journal.close();}
+      }
+      assert.equal(result.status,'completed','startup round '+round);
+    } finally {host.close();tmp.cleanup();}
+  }
+});
