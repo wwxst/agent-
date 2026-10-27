@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { type AssistantMessage, type ContextMessage, type EventDraft, type EventStore, KernelError, type KernelEvent, type ModelProvider, type SessionId, type ToolResult, type TurnId, type TurnState } from '../../contracts/src/index.js';
 import { executeBatch, ToolRegistry } from '../../tool-scheduler/src/index.js';
 
-interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; }
-export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; }
+interface ActiveTurn { turnId: TurnId; controller: AbortController; state: TurnState | 'admitting'; fenced?: boolean; }
+export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCalls?: number; readonly assertExecutionLease?: () => void; }
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
 
@@ -16,8 +16,10 @@ export class AgentKernel {
   private readonly creating = new Set<SessionId>();
   private readonly maxSteps: number;
   private readonly maxToolCalls: number;
+  private readonly assertExecutionLease?: () => void;
   constructor(private readonly store: EventStore, private readonly provider: ModelProvider,
     private readonly tools: ToolRegistry, options: KernelOptions = {}, private readonly onDelta?: DeltaListener) {
+    this.assertExecutionLease = options.assertExecutionLease;
     this.maxSteps = options.maxSteps ?? 8;
     this.maxToolCalls = options.maxToolCalls ?? 16;
     if (!Number.isSafeInteger(this.maxSteps) || this.maxSteps < 1 || !Number.isSafeInteger(this.maxToolCalls) || this.maxToolCalls < 0) {
@@ -105,6 +107,24 @@ export class AgentKernel {
     }
   }
 
+  /**
+   * Loss of lease is NOT user cancellation: abort cooperatively but deliberately
+   * leave the admitted turn unresolved for recovery. No terminal event is forged.
+   */
+  fenceActiveTurn(sessionId: SessionId): boolean {
+    const ctl = this.active.get(sessionId);
+    if (!ctl || ctl.fenced) return false;
+    ctl.fenced = true;
+    ctl.controller.abort(new KernelError('LEASE_LOST', 'Writer lease lost'));
+    return true;
+  }
+
+  private verifyExecution(ctl: ActiveTurn): void {
+    if (ctl.fenced) throw new KernelError('LEASE_LOST', 'Writer lease lost');
+    this.assertExecutionLease?.();
+    if (ctl.fenced) throw new KernelError('LEASE_LOST', 'Writer lease lost');
+  }
+
   private isCancelling(ctl: ActiveTurn): boolean { return ctl.controller.signal.aborted || ctl.state === 'cancelling'; }
   private assertSession(id: SessionId): void { if (!this.known.has(id)) throw new KernelError('UNKNOWN_SESSION', id); }
   async readEvents(sessionId: SessionId, afterSeq = 0): Promise<readonly KernelEvent[]> {
@@ -149,14 +169,18 @@ export class AgentKernel {
       await record({ type: 'turn.queued', turnId, data: {} }, { type: 'user.message', turnId, data: { text } }, { type: 'turn.started', turnId, data: {} });
       admitted = true;
       ctl.state = 'running_model';
+      this.verifyExecution(ctl);
       let toolCount = 0;
       const seenCallIds = new Set<string>();
       for (let step = 1; step <= this.maxSteps; step++) {
+        this.verifyExecution(ctl);
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         await record({ type: 'model.started', turnId, data: { step, providerId: this.provider.id, toolSet: this.tools.visibleTools } });
         const messages = await this.context(sessionId);
+        this.verifyExecution(ctl);
         let completed: { message: AssistantMessage; finishReason: 'stop' | 'tool_use' | 'length' } | undefined;
         for await (const event of this.provider.stream(messages, ctl.controller.signal)) {
+          this.verifyExecution(ctl);
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
           if (event.type === 'text_delta') this.onDelta?.(event.text, {sessionId, turnId});
           if (event.type === 'message_complete') {
@@ -164,6 +188,7 @@ export class AgentKernel {
             completed = { message: event.message, finishReason: event.finishReason };
           }
         }
+        this.verifyExecution(ctl);
         if (!completed) throw new KernelError('INCOMPLETE_PROVIDER_STREAM', 'No completed assistant message');
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         const { message, finishReason } = completed;
@@ -175,9 +200,11 @@ export class AgentKernel {
         if (finishReason === 'tool_use' && message.toolCalls.length === 0) throw new KernelError('INVALID_FINISH_REASON', 'tool_use requires tool calls');
         if (message.toolCalls.some(c => seenCallIds.has(c.id))) throw new KernelError('DUPLICATE_CALL_ID', 'Tool call ID reused in same turn');
         if (toolCount + message.toolCalls.length > this.maxToolCalls) throw new KernelError('TOOL_BUDGET_EXCEEDED', 'Tool call limit reached');
+        this.verifyExecution(ctl);
         await record({ type: 'assistant.message', turnId, data: structuredClone(message) });
         if (message.toolCalls.length === 0) {
           if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
+          this.verifyExecution(ctl);
           // Claim completion synchronously: later cancelTurn calls must not append a post-terminal cancellation.
           ctl.state = 'completed';
           await record({ type: 'turn.completed', turnId, data: { stepCount: step } });
@@ -187,13 +214,22 @@ export class AgentKernel {
         toolCount += message.toolCalls.length;
         for (const call of message.toolCalls) seenCallIds.add(call.id);
         ctl.state = 'running_tools';
-        const results = await executeBatch(message.toolCalls, this.tools, ctl.controller.signal);
+        this.verifyExecution(ctl);
+        const results = await executeBatch(message.toolCalls, this.tools, ctl.controller.signal, () => this.verifyExecution(ctl));
+        this.verifyExecution(ctl);
         await record(...results.map(r => ({ type: 'tool.result' as const, turnId, data: r })));
         if (this.isCancelling(ctl)) throw new KernelError('CANCELLED', 'User cancelled');
         ctl.state = 'running_model';
       }
       throw new KernelError('STEP_BUDGET_EXCEEDED', 'Model step budget reached');
     } catch (error) {
+      // Fence loss is not cancellation/failure: never append a terminal event
+      // after ownership is gone. The successor must reconcile this turn.
+      if (ctl.fenced || (error instanceof KernelError && error.code === 'LEASE_LOST')) {
+        ctl.fenced = true;
+        ctl.controller.abort(new KernelError('LEASE_LOST', 'Writer lease lost'));
+        throw new KernelError('LEASE_LOST', 'Turn unfinished after losing writer lease');
+      }
       // Failed admission has no Turn to terminate; never write a phantom terminal event.
       if (!admitted) throw error;
       const cancelled = this.isCancelling(ctl);
