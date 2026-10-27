@@ -1,4 +1,4 @@
-import {readFileSync,realpathSync,statSync,accessSync,constants} from 'node:fs';
+import {readFileSync,realpathSync,statSync,accessSync,constants,statfsSync} from 'node:fs';
 import {relative,resolve,isAbsolute,dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import {ProcessToolHost} from './index.js';
@@ -162,6 +162,48 @@ export function assertDedicatedCgroupReady(
     return unavailable('Cgroup migration or kill privilege not delegated');
   }
   return {...own,relativePath:leaf};
+}
+
+export interface DedicatedToolHostOptions extends EnforcedToolHostOptions {
+  /** Pre-created EMPTY leaf strictly below this process's cgroup. */
+  readonly dedicatedCgroupRelativePath:string;
+}
+
+/**
+ * This entry never migrates the controller. A trusted in-repo launch helper
+ * migrates ITSELF before starting bwrap. cgroup.kill ends the whole subtree.
+ * No privileged cgroup setup is silently attempted.
+ */
+export async function startDedicatedToolHost(options:DedicatedToolHostOptions):Promise<{
+  readonly host:ProcessToolHost;
+  readonly limits:AttestedCgroupLimits;
+}>{
+  if(!options||!options.sandbox||!options.requiredBudget
+    ||typeof options.databasePath!=='string'||!options.databasePath.trim()
+    ||typeof options.dedicatedCgroupRelativePath!=='string')
+    denied('Dedicated cgroup, sandbox and budget are mandatory');
+  validateBudget(options.requiredBudget);
+  if(process.platform!=='linux')return unavailable('Linux-only dedicated Tool Host');
+  const root='/sys/fs/cgroup';
+  try{
+    if(statfsSync(root).type!==0x63677270)return unavailable('Unified cgroup v2 filesystem required');
+  }catch{return unavailable('Cgroup v2 filesystem inaccessible');}
+  const parent=readUnifiedCgroupPath(readFileSync('/proc/self/cgroup','utf8'));
+  const limits=assertDedicatedCgroupReady(parent,options.dedicatedCgroupRelativePath,
+    options.requiredBudget);
+  const sandbox:LinuxBubblewrapSandbox={...options.sandbox,
+    dedicatedCgroup:{relativePath:limits.relativePath,budget:options.requiredBudget}};
+  const host=new ProcessToolHost(options.databasePath,options.timeoutMs??4000,sandbox);
+  try{
+    await host.waitUntilReady();
+    const pid=host.pid;
+    if(!pid || !Number.isSafeInteger(pid))return unavailable('Host launcher PID unavailable');
+    const current=readUnifiedCgroupPath(readFileSync('/proc/'+pid+'/cgroup','utf8'));
+    if(current!==limits.relativePath)return unavailable('Dedicated launcher did not join the correct cgroup');
+    const leafDir=resolve(root,'.'+limits.relativePath);
+    assertInheritedCgroupBudget(inspectCgroupV2From('0::/',leafDir),options.requiredBudget);
+    return {host,limits};
+  }catch(error){host.close();throw error;}
 }
 
 /** Read the CURRENT process's kernel-enforced aggregate cgroup quota. */
