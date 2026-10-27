@@ -79,7 +79,7 @@ test('M3 seccomp: denies network and privilege syscalls but retains Node bootstr
     assert.ok(index>=6,operation);
     assert.equal(bpf[index+1]?.value,0x00050001);
   }
-  const denied=new Set(Object.values(names));
+  const denied=new Set<number>(Object.values(names));
   for(const runtimeSyscall of [0,1,2,3,9,17,18,56,59,202,257]){
     assert.equal(denied.has(runtimeSyscall),false,'Do not deny core Node / SQLite syscall '+runtimeSyscall);
   }
