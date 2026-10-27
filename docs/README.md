@@ -36,6 +36,7 @@
 | M2-25 | [持久凭据轮换撤销与授权审计](25-M2-持久凭据轮换撤销与授权审计.md) | 可信本地管理、SQLite 密钥版本 CAS、永久撤销和 fail-closed 授权决策审计 |
 | M2-26 | [执行期间授权撤销与协作中断](26-M2-执行期间授权撤销与协作中断.md) | HTTP Grant 版本绑定、周期重检及模型/工具栅栏、未决 Turn 保守审计 |
 | M3-27 | [Linux Tool Host Bubblewrap 强制隔离](27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md) | 显式 Linux namespace、只读应用/运行时、独立 RW SQLite、真实网络/文件隔离测试，不支持时拒绝 |
+| M3-28 | [沙箱启动可信根与临时空间预算](28-M3-沙箱启动可信根与私有临时空间预算.md) | launcher 位于受信 RO runtime、tmpfs 容量限制与 Worker READY 超时 fail-closed |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
