@@ -1,10 +1,10 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 SQLite/Fencing/Intent-Receipt 审计增量已实现（非生产就绪）** · **最后更新：2026-10-27**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1 持久化/租约/收据/子进程只读 Tool Host 增量已实现（非生产就绪）** · **最后更新：2026-10-27**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
-**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner，以及可信只读工具的持久 Intent/Receipt 审计。** 独立 Tool Host、未决 Turn 自动对账恢复、外部副作用的强制幂等与完整安全验收仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)。
+**注意：M0 Agent Loop 已实现；M1 已实现安全重开、SQLite WAL、Writer Lease/Fencing、ManagedSessionRunner、持久 Intent/Receipt，并新增真正独立 Node 子进程的只读 Tool Host 与 Host 自身的执行账本。** OS 沙箱、未决 Turn 自动对账、生产鉴权和外部副作用幂等仍未实现。详见 [M0 说明](m0/README.md)、[M1 会话重开](docs/11-M1-会话重开与恢复边界.md)、[M1 SQLite WAL](docs/12-M1-SQLite-WAL-事件日志.md) 和 [Writer Lease 设计边界](docs/13-M1-Writer-Lease-与-Fencing-Token.md)及[ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)及[Tool Intent/Receipt](docs/15-M1-Tool-Intent-Receipt-执行审计.md)及[子进程 Tool Host](docs/16-M1-子进程ToolHost-与执行账本.md)。
 
 ## 一、项目目标
 
@@ -47,6 +47,7 @@
 17. [M1 Writer Lease 与 Fencing Token](docs/13-M1-Writer-Lease-与-Fencing-Token.md)：租约基础协议、旧持有者隔离。
 18. [M1 ManagedSessionRunner](docs/14-M1-ManagedSessionRunner-自动租约与中断.md)：自动续租、租约丢失协作中断，尚无 Tool Host 安全边界。
 19. [M1 Tool Intent/Receipt 执行审计](docs/15-M1-Tool-Intent-Receipt-执行审计.md)：执行前意图、每项结果持久收据、结果未知时拒绝自动重放。
+20. [M1 子进程 Tool Host 与执行账本](docs/16-M1-子进程ToolHost-与执行账本.md)：子进程白名单、Host 端租约及 Intent 复核、重复执行防护。
 
 附加约束：
 
@@ -70,11 +71,12 @@
 - **M1 SQLite WAL（已合并 main）**：`packages/event-store-sqlite` 使用 Node 自带 `node:sqlite`，实现事务 compare-and-append、SQLite 文件级重开和 read cursor；新增 5 项测试（含 SIGKILL 重开）。M1 的存储接口**不等于**完整恢复系统。
 - **M1 Writer Lease/Fencing（已合并 main）**：新增 `packages/session-leases-sqlite` 租约事务、过期后递增 Fencing Token 和可选的 SQLite EventStore 事务内栅栏。增加 10 项测试；后续已接入托管 Runner 自动 acquire/renew/release。
 - **M1 托管 Session（已合并 main）**：新增 `packages/session-runtime`，按操作自动获取/续租/释放 Writer Lease，所有 append 绑定 Token，Kernel/工具执行前检查租约，租约丢失时协作中断且不伪造终态；新增 6 项测试。
-- **M1 Tool Intent/Receipt 执行审计（本轮分支）**：新增 `packages/tool-audit`、事件合同、Kernel 执行前 Intent 和按 ToolCall 单独持久 Receipt；面对收据丢失、进程崩溃或 outcome_unknown 坚持人工对账而非自动重试；新增 13 项测试。
-- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，目前累计 55 项测试；以具体 workflow run 为准。
-- **仍未具备**：真实模型、Tool Host 独立 Fencing 与 OS 隔离、自动 Tool Recovery Coordinator、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
+- **M1 Tool Intent/Receipt 执行审计（已合并 main）**：新增 `packages/tool-audit`、事件合同、Kernel 执行前 Intent 和按 ToolCall 单独持久 Receipt；面对收据丢失、进程崩溃或 outcome_unknown 坚持人工对账而非自动重试；新增 13 项测试。
+- **M1 子进程 Tool Host（已实现增量）**：新增 `packages/tool-host`（IPC Client、Worker、SQLite 执行账本），子进程自己复核有效租约和持久 Intent，在调用前提交 STARTED、结束时再验证 Fencing Token；仅支持 `read.echo/read.sleep` 两个演示工具，新增 10 项测试。
+- **自动验证**：GitHub Actions 同时运行 Node 22.16.0 和 Node 22.x 的 `npm run check` 与 `npm test`，累计 65 项测试；以具体 workflow run 为准。
+- **仍未具备**：真实模型、Tool Host 的 OS 强制隔离和生产鉴权、自动 Tool Recovery Coordinator、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现可信只读工具的 Intent/Receipt 持久审计与结果未知阻断；下一阶段开发独立可信 Tool Host、Host-side Fencing Token 校验及执行幂等/审批，再推进恢复协调器与真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已新增只读白名单子进程 Tool Host 与独立 Fencing/执行状态台账；下一阶段推进 OS 强制沙箱、Host 鉴权与权限审批、跨进程执行状态对账协调器，再接入真实 Provider。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。

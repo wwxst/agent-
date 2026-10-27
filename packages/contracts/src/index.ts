@@ -33,6 +33,12 @@ export interface ModelProvider {
   stream(messages: readonly ContextMessage[], signal: AbortSignal): AsyncIterable<ProviderEvent>;
 }
 
+/** Trusted routing metadata; Host must independently verify every field. */
+export interface ToolExecutionContext {
+  readonly sessionId: SessionId;
+  readonly turnId: TurnId;
+  readonly callId: ToolCallId;
+}
 export type Risk = 'read' | 'write' | 'external_side_effect';
 export type Concurrency = 'parallel' | 'exclusive';
 export interface ToolDefinition {
@@ -43,7 +49,7 @@ export interface ToolDefinition {
   /** Must validate and normalize untrusted model arguments; must not have side effects. */
   parse(input: unknown): unknown;
   /** Fake/read-only host for M0 only. A production Host must return a separate receipt. */
-  execute(input: unknown, signal: AbortSignal): Promise<string>;
+  execute(input: unknown, signal: AbortSignal, context?: ToolExecutionContext): Promise<string>;
 }
 
 export type TurnState = 'queued' | 'running_model' | 'running_tools' | 'cancelling' | 'completed' | 'failed' | 'cancelled';

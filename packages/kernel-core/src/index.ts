@@ -239,6 +239,7 @@ export class AgentKernel {
               { type: 'tool.result', turnId, data: receipt },
             );
           },
+          { sessionId, turnId },
         );
         this.verifyExecution(ctl);
         // Even an explicit outcome_unknown receipt is not proof of safety:
