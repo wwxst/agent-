@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -223,4 +223,85 @@ test('M3 sandbox: real namespace denies parent-only file, code write and host lo
     });
     assert.equal(connections,0);
   }finally{listener.close();tmp.done();}
+});
+
+
+test('M3 hardening: sandbox executable in writable SQLite folder cannot impersonate Bubblewrap',()=>{
+  const t=temp();
+  try{
+    const launcher=join(dirname(t.path),'bwrap-fake');
+    writeFileSync(launcher,'#!/bin/sh\necho unauthorized\n');
+    chmodSync(launcher,0o755);
+    assert.throws(()=>buildBubblewrapLaunch({...config(),binaryPath:launcher},
+      t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+    assert.throws(()=>new ProcessToolHost(t.path,1000,
+      {...config(),binaryPath:launcher}),{code:'HOST_SANDBOX_UNAVAILABLE'});
+  }finally{t.done();}
+});
+
+test('M3 hardening: private tmpfs is size capped and invalid safety limits are rejected',()=>{
+  const t=temp();
+  try{
+    const cmd=buildBubblewrapLaunch({...config(),binaryPath:process.execPath,
+      privateTmpBytes:2*1024*1024},t.path,compiledRoot,worker);
+    const flag=cmd.argv.indexOf('--size');
+    assert.ok(flag>=0);
+    assert.deepEqual(cmd.argv.slice(flag,flag+6),
+      ['--size',String(2*1024*1024),'--perms','0700','--tmpfs','/tmp']);
+    for(const privateTmpBytes of [0,1000,-1,128*1024*1024+1,NaN,Infinity,1.5]){
+      assert.throws(()=>buildBubblewrapLaunch({...config(),privateTmpBytes},
+        t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+    }
+    for(const startupTimeoutMs of [0,-1,60_001,NaN,1.1]){
+      assert.throws(()=>buildBubblewrapLaunch({...config(),startupTimeoutMs},
+        t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+    }
+  }finally{t.done();}
+});
+
+test('M3 hardening: actual namespace enforces tmpfs size, not just argv annotation',async t=>{
+  if(process.platform!=='linux'||!existsSync('/usr/bin/bwrap'))return t.skip('Bubblewrap missing');
+  const probe=spawnSync('/usr/bin/bwrap',['--unshare-all','--unshare-user',
+    '--ro-bind','/','/','--proc','/proc','--dev','/dev','--','/usr/bin/true'],
+    {encoding:'utf8',timeout:3000});
+  if(probe.status!==0)return t.skip('Linux namespaces denied by host policy');
+  const tmp=temp();
+  try{
+    const launcher=buildBubblewrapLaunch({...config(),privateTmpBytes:1024*1024},
+      tmp.path,compiledRoot,worker);
+    const boundary=launcher.argv.lastIndexOf('--');
+    assert.ok(boundary>=0);
+    const command=String.raw`
+      import {writeFileSync} from 'node:fs';
+      try{
+        writeFileSync('/tmp/oversize-file',Buffer.alloc(3*1024*1024,0x41));
+        process.exitCode=7;
+      }catch(error){
+        if(error?.code!=='ENOSPC')throw error;
+        console.log('TMPFS_ENOSPC');
+      }
+    `;
+    const run=spawnSync(launcher.executable,[...launcher.argv.slice(0,boundary+1),
+      binary,'--input-type=module','-e',command],{encoding:'utf8',timeout:6000});
+    assert.equal(run.status,0,run.stderr);
+    assert.match(run.stdout,/TMPFS_ENOSPC/);
+  }finally{tmp.done();}
+});
+
+test('M3 hardening: stalled namespace launch has a bounded readiness deadline',async t=>{
+  if(process.platform!=='linux'||!existsSync('/usr/bin/bwrap'))return t.skip('Bubblewrap missing');
+  const tmp=temp();
+  let host:ProcessToolHost|undefined;
+  try{
+    host=new ProcessToolHost(tmp.path,4000,{...config(),startupTimeoutMs:1});
+    const call={
+      lease:{sessionId:'s',ownerId:'owner',fenceToken:1,expiresAtMs:0},
+      turnId:'t',callId:'c',name:'read.echo',input:{text:'should not execute'},
+    };
+    await assert.rejects(host.invoke(call,new AbortController().signal),
+      {code:'HOST_SANDBOX_UNAVAILABLE'});
+    const ledger=new HostExecutionLedger(tmp.path);
+    try{assert.equal(ledger.inspect('s').length,0);}
+    finally{ledger.close();}
+  }finally{host?.close();tmp.done();}
 });
