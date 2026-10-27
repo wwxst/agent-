@@ -2,6 +2,7 @@ import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync} 
 import {isAbsolute, relative, dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import type {CgroupBudget} from './enforced.js';
+import type {HostSeccompPolicy} from './seccomp.js';
 
 /**
  * Strict Linux-only namespace launch. This API is for TRUSTED host configuration,
@@ -20,6 +21,8 @@ export interface LinuxBubblewrapSandbox {
   readonly startupTimeoutMs?:number;
   /** Only set by trusted dedicated-cgroup deployment entry. */
   readonly dedicatedCgroup?:Readonly<{relativePath:string;budget:CgroupBudget}>;
+  /** Explicitly request the built-in Linux x86_64 syscall-denial profile. */
+  readonly seccompPolicy?:HostSeccompPolicy;
 }
 export interface BubblewrapLaunch {
   readonly executable:string;
@@ -70,6 +73,9 @@ export function buildBubblewrapLaunch(
   const dbDir=realDirectory(dirname(db));
   if(!disjoint(app,dbDir))return fail();
   const runtime=sandbox.runtimeReadOnlyDirectories.map(realDirectory);
+  if(sandbox.seccompPolicy!==undefined
+    &&(sandbox.seccompPolicy!=='network-and-privilege-deny-v1'
+      ||process.arch!=='x64'))return fail();
   if(!runtime.some(root=>within(binary,root)))return fail();
   if(sandbox.privateTmpBytes!==undefined && (!Number.isSafeInteger(sandbox.privateTmpBytes)
     || sandbox.privateTmpBytes<1024*1024 || sandbox.privateTmpBytes>128*1024*1024))return fail();
@@ -110,7 +116,8 @@ export function buildBubblewrapLaunch(
       argv.push('--symlink',raw,alias);
     }catch{/* Missing optional compatibility alias. */}
   }
-  argv.push('--ro-bind',app,app,'--bind',dbDir,dbDir,
-    '--chdir',app,'--',node,worker,db);
+  argv.push('--ro-bind',app,app,'--bind',dbDir,dbDir,'--chdir',app);
+  if(sandbox.seccompPolicy)argv.push('--seccomp','3');
+  argv.push('--',node,worker,db);
   return {executable:binary,argv};
 }
