@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { KernelError } from '../../contracts/src/index.js';
 import { inspectConnectionSnapshot, type ReconciliationReport } from '../../tool-reconciliation/src/index.js';
@@ -92,6 +91,10 @@ export class SqliteRecoveryReviewStore {
       if (!report.requiresManualReview) {
         throw new KernelError('NO_REVIEW_REQUIRED', 'No unresolved evidence to review');
       }
+      const previous = this.db.prepare(`
+        SELECT 1 FROM recovery_reviews WHERE session_id = ? AND review_id = ?
+      `).get(request.sessionId, request.reviewId);
+      if (previous) throw new KernelError('DUPLICATE_REVIEW_ID', 'Review ID is already used in this session');
       const count = this.db.prepare(`
         SELECT COALESCE(MAX(review_seq),0) AS version
         FROM recovery_reviews WHERE session_id = ?
@@ -113,10 +116,7 @@ export class SqliteRecoveryReviewStore {
       return { ...request, reviewSeq, createdAt };
     } catch (error) {
       if (this.db.isTransaction) this.db.exec('ROLLBACK');
-      if (error && typeof error === 'object' && 'code' in error
-        && String(error.code).startsWith('ERR_SQLITE_CONSTRAINT')) {
-        throw new KernelError('DUPLICATE_REVIEW_ID', 'Review ID is already used in this session');
-      }
+
       throw error;
     }
   }
