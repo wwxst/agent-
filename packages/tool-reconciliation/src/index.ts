@@ -114,6 +114,13 @@ export class SqliteToolReconciler {
     if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'sessionId required');
     this.db.exec('BEGIN');
     try {
+      const journalTable = this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='kernel_events'"
+      ).get();
+      if (!journalTable) throw new KernelError('UNKNOWN_SESSION', 'No Kernel journal in database');
+      const hostTable = this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_tool_executions'"
+      ).get();
       const raw = this.db.prepare(`
         SELECT session_id, seq, event_id, turn_id, type, data_json, occurred_at
         FROM kernel_events WHERE session_id = ? ORDER BY seq
@@ -127,10 +134,12 @@ export class SqliteToolReconciler {
         data: JSON.parse(row.data_json as string) as unknown,
         at: row.occurred_at as string,
       }));
-      const hostRows = this.db.prepare(`
+      // Legacy sessions may never have initialized the Host ledger table.
+      // Missing table means no Host attestation, not permission to replay.
+      const hostRows = hostTable ? this.db.prepare(`
         SELECT session_id, turn_id, call_id, tool_name, fence_token, state, content
         FROM host_tool_executions WHERE session_id = ? ORDER BY turn_id,call_id
-      `).all(sessionId);
+      `).all(sessionId) : [];
       const hosts: HostLedgerEntry[] = hostRows.map(row => ({
         sessionId: row.session_id as string,
         turnId: row.turn_id as string,
