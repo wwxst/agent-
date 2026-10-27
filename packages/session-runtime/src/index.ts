@@ -5,6 +5,7 @@ import { SqliteEventStore } from '../../event-store-sqlite/src/index.js';
 import { SqliteWriterLeaseStore, type WriterLease } from '../../session-leases-sqlite/src/index.js';
 import type { ToolRegistry } from '../../tool-scheduler/src/index.js';
 import { SqliteCommandInbox, type AcceptedCommand } from '../../command-inbox/src/index.js';
+import type { ContextCompactor } from '../../context-engine/src/index.js';
 
 export interface ManagedSessionOptions {
   /** Claim lifetime in DB wall-clock milliseconds. Default: 3000. */
@@ -15,6 +16,7 @@ export interface ManagedSessionOptions {
   readonly maxToolCalls?: number;
   readonly maxContextCharacters?: number;
   readonly maxTotalTokens?: number;
+  readonly contextCompactor?: ContextCompactor;
 }
 
 /**
@@ -84,6 +86,7 @@ export class ManagedSessionRunner {
         ...(this.options.maxToolCalls === undefined ? {} : { maxToolCalls: this.options.maxToolCalls }),
         ...(this.options.maxContextCharacters === undefined ? {} : { maxContextCharacters: this.options.maxContextCharacters }),
         ...(this.options.maxTotalTokens === undefined ? {} : { maxTotalTokens: this.options.maxTotalTokens }),
+        ...(this.options.contextCompactor === undefined ? {} : { contextCompactor: this.options.contextCompactor }),
       };
       const tools = typeof this.tools === 'function' ? this.tools(claim) : this.tools;
       kernel = new AgentKernel(journal, this.provider, tools, kernelOptions, this.onDelta);
