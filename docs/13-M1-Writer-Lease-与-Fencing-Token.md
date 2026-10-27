@@ -1,6 +1,6 @@
 # 13 · M1 SQLite Writer Lease 与 Fencing Token
 
-> 状态：**租约基础模块与事务内事件写入校验已实现，跨进程 Agent 执行协调尚未完成**。本阶段仍仅允许可信只读工具；不要因为看见 `lease` 字样就开放 Shell/写工具/外部网络副作用。
+> 状态：**租约基础模块与事务内事件写入校验已实现；后续已新增按单次操作自动抢占/续租/释放的 ManagedSessionRunner**。跨进程 Tool Host 强制安全边界与完整恢复仍未完成。本阶段仍仅允许可信只读工具；不要因为看见 `lease` 字样就开放 Shell/写工具/外部网络副作用。
 
 ## 一、代码和 API
 
@@ -75,13 +75,13 @@ try {
 }
 ```
 
-上例展示组合接口，并非已经存在的自动续约/抢占控制器。**没有心跳协调器时，任务一旦超过 TTL，带租约 EventStore 就会拒绝继续写事件**；该异常必须被上层识别并停止后续工作。对模型或工具执行中的副作用仅靠数据库写入栅栏不足以撤销。
+上例是底层手动组合；后续已提供 [ManagedSessionRunner](14-M1-ManagedSessionRunner-自动租约与中断.md) 进行按操作的自动续租及结束释放。**若手动组合而不续租，超过 TTL 后 EventStore 将拒绝写入**。对模型或工具执行中的副作用仅靠数据库写入栅栏不足以撤销。
 
 ## 四、兼容性与防绕过边界
 
 - `new SqliteEventStore(path)` **仍保持旧的非 fenced 模式**，方便 M0/M1 测试与迁移。它不会自动检查租约，不能作为多进程安全执行存储。要实现全局强制执行，还须由可信 Kernel Factory 限定只能使用带租约连接，并对数据库写入入口封装授权。
 - `assertOwned()` 是时点观察；工具在检查后仍可能跨越租约超时点。Tool Host 最终需要独立持久验证 `fenceToken`，并对非幂等执行加 Intent/Receipt。
-- `AgentKernel` **尚未自动 acquire、renew、abort、release 租约**。本提交实现的是协调原语及 fenced EventStore，不声称真正的跨进程 Turn 互斥已全面落地。
+- `AgentKernel` 本身不负责持久租约，而可信 `ManagedSessionRunner` 已实现每次操作的 acquire/renew/fence/release；此实现仍不具备独立 Tool Host 的强制 Fencing，不能宣称完整跨进程副作用互斥。
 - 本实现使用同步 `node:sqlite`，可能阻塞 Node 事件循环。没有提供长期续约 Worker、进程间心跳监控、失联补偿。
 - 共享数据库文件要有安全访问控制；恶意代码持有原始 SQLite 写权限仍能绕过应用层约束。不应将它宣称为 OS 安全边界或鉴权系统。
 - 不提供自动重跑未决 Turn，不提供 exactly-once；`RECOVERY_REQUIRED` 语义继续有效。
@@ -92,7 +92,7 @@ try {
 
 下一阶段优先：
 
-1. 在可信 Kernel 入口自动执行 Session writer lease 的 acquire / renew / release 与失效 abort；
+1. 扩展已实现的 ManagedSessionRunner：完善跨进程 watchdog、故障注入与长时任务控制；
 2. 把 event append 与 Tool Intent 持久化语义组合，Host 执行前独立校验 fence token；
 3. 故障注入：在真正跨进程竞争、续约丢失和主进程 crash 时保证拒绝而非双执行；
 4. 升级 SQLite 数据迁移、审计和隔离，再开放更多工具能力。
