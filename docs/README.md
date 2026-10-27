@@ -23,6 +23,7 @@
 | M1-12 | [SQLite WAL 事件日志](12-M1-SQLite-WAL-事件日志.md) | 已实现事务 CAS、跨连接与 SIGKILL 测试 |
 | M1-13 | [Writer Lease 与 Fencing Token](13-M1-Writer-Lease-与-Fencing-Token.md) | 租约事务与 fenced append 的实现记录 |
 | M1-14 | [ManagedSessionRunner 自动续租与中断](14-M1-ManagedSessionRunner-自动租约与中断.md) | 已实现按操作自动租约管理与协作中断；尚无独立 Tool Host |
+| M1-15 | [Tool Intent/Receipt 执行审计](15-M1-Tool-Intent-Receipt-执行审计.md) | 执行前持久化、单项收据、结果未知时拒绝重放；仅可信只读工具 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
 | ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
@@ -49,4 +50,4 @@
 
 ## 建议从哪里开始
 
-当前 M0 已有可运行的单 Agent 状态机与确定性测试；M1 的 session 重开和 SQLite WAL 日志已有增量代码。下一步优先实现 Tool Intent/Receipt 与独立可信 Tool Host，不是先做 UI 或放开不受信任工具执行。
+当前 M0 已有可运行的单 Agent 状态机与确定性测试；M1 的 session 重开和 SQLite WAL 日志已有增量代码。下一步优先实现独立可信 Tool Host、Host 侧 Fencing 与持久执行幂等，不是先做 UI 或放开不受信任工具执行。
