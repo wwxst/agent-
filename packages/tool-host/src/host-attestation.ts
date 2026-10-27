@@ -126,6 +126,26 @@ export function attestSandboxWorker(req:AttestationRequest):KernelHostIdentity{
   return worker;
 }
 
+
+function seccompStatus(pid:number):{mode:number;filters:number}{
+  const status=proc(pid,'status');
+  const mode=/^Seccomp:\s*(\d+)\s*$/m.exec(status);
+  const filters=/^Seccomp_filters:\s*(\d+)\s*$/m.exec(status);
+  if(!mode||!filters)return reject();
+  return {mode:Number(mode[1]),filters:Number(filters[1])};
+}
+/**
+ * Linux procfs cannot expose BPF program bytes, but it MUST confirm the
+ * worker has one MORE active filter than this trusted parent and uses
+ * SECCOMP_MODE_FILTER (2). This is not cryptographic program attestation.
+ */
+export function assertWorkerSeccompInstalled(pid:number):void{
+  const parent=seccompStatus(process.pid);
+  const worker=seccompStatus(pid);
+  if(worker.mode!==2||!Number.isSafeInteger(worker.filters)
+    ||worker.filters<parent.filters+1)return reject();
+}
+
 /** Protect every ToolCall against exit/PID reuse or post-READY namespace changes. */
 export function assertWorkerIdentity(identity:KernelHostIdentity):void{
   if(!Number.isSafeInteger(identity.pid)||identity.pid<1)return reject();

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readFileSync,realpathSync,statfsSync,writeFileSync } from 'node:fs';
+import { readFileSync,realpathSync,statfsSync,writeFileSync,closeSync } from 'node:fs';
 import { resolve,relative,isAbsolute } from 'node:path';
 import { readUnifiedCgroupPath,assertDedicatedCgroupReady } from './enforced.js';
-import { attestSandboxWorker,assertWorkerIdentity,type KernelHostIdentity } from './host-attestation.js';
+import { attestSandboxWorker,assertWorkerIdentity,assertWorkerSeccompInstalled,type KernelHostIdentity } from './host-attestation.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
+import {openHostSeccompFilter} from './seccomp.js';
 import { KernelError, type ToolExecutionContext } from '../../contracts/src/index.js';
 import type { WriterLease } from '../../session-leases-sqlite/src/index.js';
 import { ToolRegistry } from '../../tool-scheduler/src/index.js';
@@ -36,6 +37,7 @@ export class ProcessToolHost {
   private readonly pending = new Map<string, Pending>();
   private ended = false;
   private readonly sandboxed:boolean;
+  private readonly seccompRequired:boolean;
   private workerIdentity?:KernelHostIdentity;
   private readonly expectedWorkerPath:string;
   private readonly expectedNodePath:string;
@@ -51,6 +53,7 @@ export class ProcessToolHost {
   constructor(databasePath: string, private readonly timeoutMs = 4000,
     sandbox?: LinuxBubblewrapSandbox) {
     this.sandboxed=sandbox!==undefined;
+    this.seccompRequired=sandbox?.seccompPolicy!==undefined;
     this.expectedWorkerPath=fileURLToPath(new URL('./worker.js',import.meta.url));
     this.expectedNodePath=process.execPath;
     this.expectedDatabasePath=databasePath;
@@ -90,19 +93,28 @@ export class ProcessToolHost {
       // No bwrap binary, bad mount allowlist or unsupported Linux => no fallback.
       const compiledRoot=fileURLToPath(new URL('../../../',import.meta.url));
       const launch=buildBubblewrapLaunch(sandbox,databasePath,compiledRoot,fileURLToPath(worker));
-      if(sandbox.dedicatedCgroup){
-        // Trusted launcher self-migrates into a bounded empty leaf BEFORE
-        // spawning bwrap; a failed migration can never run the worker.
-        const launcher=fileURLToPath(new URL('./cgroup-launcher.js',import.meta.url));
-        this.child=spawn(process.execPath,[
-          launcher,sandbox.dedicatedCgroup.relativePath,
-          JSON.stringify(sandbox.dedicatedCgroup.budget),
-          launch.executable,...launch.argv,
-        ],{env:{},stdio:['pipe','pipe','ignore']});
-      }else{
-        this.child=spawn(launch.executable,[...launch.argv],{
-          env:{},stdio:['pipe','pipe','ignore'],
-        });
+      // bwrap --seccomp 3 consumes an inherited anonymous filter fd.
+      // Unlink before spawn and close the parent's copy after spawn.
+      // For a dedicated cgroup, the launcher passes fd 3 to bwrap unchanged.
+      const filterFd=sandbox.seccompPolicy
+        ?openHostSeccompFilter(sandbox.seccompPolicy):undefined;
+      const stdio:Array<'pipe'|'ignore'|number>=['pipe','pipe','ignore'];
+      if(filterFd!==undefined)stdio.push(filterFd);
+      try{
+        if(sandbox.dedicatedCgroup){
+          // Trusted launcher self-migrates into a bounded empty leaf BEFORE
+          // spawning bwrap; a failed migration can never run the worker.
+          const launcher=fileURLToPath(new URL('./cgroup-launcher.js',import.meta.url));
+          this.child=spawn(process.execPath,[
+            launcher,sandbox.dedicatedCgroup.relativePath,
+            JSON.stringify(sandbox.dedicatedCgroup.budget),
+            launch.executable,...launch.argv,
+          ],{env:{},stdio});
+        }else{
+          this.child=spawn(launch.executable,[...launch.argv],{env:{},stdio});
+        }
+      }finally{
+        if(filterFd!==undefined)closeSync(filterFd);
       }
       this.child.stdout?.setEncoding('utf8');
     }else{
@@ -123,6 +135,8 @@ export class ProcessToolHost {
               databasePath:this.expectedDatabasePath,
               claimedNamespaces:(raw as {namespaces?:unknown}).namespaces,
             });
+            if(sandbox?.seccompPolicy)
+              assertWorkerSeccompInstalled(this.workerIdentity.pid);
           }catch{
             this.close();return;
           }
@@ -222,6 +236,8 @@ export class ProcessToolHost {
       try{
         if(!this.workerIdentity)throw Error('Worker attestation unavailable');
         assertWorkerIdentity(this.workerIdentity);
+        if(this.seccompRequired)
+          assertWorkerSeccompInstalled(this.workerIdentity.pid);
       }catch{
         this.close();
         throw new KernelError('HOST_IDENTITY_UNVERIFIED','Worker kernel identity changed');
