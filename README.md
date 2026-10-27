@@ -55,6 +55,7 @@
 25. [M2 Steering 活动 Turn 指令与审计](docs/21-M2-Steering-活动Turn指令与审计.md)：活动 Turn FIFO 追加指令、持久队列、未消费输入恢复阻断。
 26. [M2 Context Checkpoint 可信摘要投影](docs/22-M2-Context-Checkpoint-可信摘要投影.md)：仅已完成历史 Turn 的可验证摘要、不删除源日志、拒绝未决状态与篡改。
 27. [M2 Command Dispatcher 持久 Turn 绑定](docs/23-M2-Command-Dispatcher-持久Turn绑定与重放阻断.md)：事务绑定 ACK/Turn、单次模型执行、崩溃后只读状态与禁止自动重放。
+28. [M2 本地认证控制面与 Session 权限](docs/24-M2-本地认证控制面与Session权限.md)：127.0.0.1 强 Bearer、Session 白名单、读写独立权限与隐私响应；非生产网关。
 
 附加约束：
 
@@ -86,11 +87,12 @@
 - **M2 Command Inbox（已合并 main）**：新增 `packages/command-inbox` 受租约保护的持久 Command ACK、SHA-256 指纹幂等、Session scoped `command.accepted` 事件，Runner 可接受控制消息但不会自动分发命令；新增 12 项故障测试。
 - **M2 Steering（已合并 main）**：新增在持有租约的活动 Turn 中持久排队指令，按下一模型步骤 FIFO 消费；未消费指令阻止会话重开和新 Command Inbox 接受，新增 9 项含独立 Host 的集成测试。
 - **M2 Context Checkpoint（已合并 main）**：显式可信 Compactor，仅压缩已完整结清的旧 Turn；Checkpoint 保留原始事件摘要 Hash 并强制恢复验证；Steering/租约/崩溃期间 fail-closed，新增 12 项测试。
-- **M2 Command Dispatcher（本轮分支）**：新增唯一 Command→Turn 映射、Fenced SQLite 原子入场、绑定用户文本指纹和崩溃后只读状态；首次执行保留既有 Host Intent/Receipt，重复交付从不重放，新增 12 项测试。
-- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 172 项；以当前提交 CI 为准。
+- **M2 Command Dispatcher（已合并 main）**：新增唯一 Command→Turn 映射、Fenced SQLite 原子入场、绑定用户文本指纹和崩溃后只读状态；首次执行保留既有 Host Intent/Receipt，重复交付从不重放，新增 12 项测试。
+- **M2 本地认证控制面（本轮分支）**：新增 `packages/control-plane`，显式配置随机 Bearer 凭据、Session 作用域与接受/分发/查看权限；只监听 127.0.0.1，响应不返回 Prompt、密钥或模型内容。新增 12 项真实 HTTP/故障测试。非生产级远端鉴权。
+- **自动验证**：GitHub Actions 在 Node 22.16.0 和 Node 22.x 执行 `npm run check` 与 `npm test`，目标累计 184 项；以当前提交 CI 为准。
 - **仍未具备**：真实计费 API 端到端联调、Tool Host 的 OS 强制隔离和生产鉴权、受控的 Recovery 修复与审批、权限审批、OS 沙箱、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
 ## 六、下一步
 
-已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。下一步建立经过认证的控制面、操作审批、Host 身份验证与 OS 强制隔离，再设计可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
+已实现双账本证据对账与版本绑定的不可变人工复核记录，但不具备鉴权或恢复权限。旧 PR #2/#3 中选定的 Provider、Command Inbox、Steering、Context Checkpoint 已按新版安全边界分别实现。现已实现受租约保护的 Command Dispatcher 首次原子绑定/分发与重复投递只读报告，但没有后台自动恢复。下一步增加控制面 Principal 的持久授权审计、密钥轮换/撤销、明确的高风险工具审批，以及 Host 身份验证与 OS 强制隔离；然后设计可信人工恢复流程。完整目标不缩水，但在这些边界完成前不开放具有副作用的执行工具。
