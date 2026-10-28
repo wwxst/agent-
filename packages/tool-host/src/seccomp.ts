@@ -20,6 +20,12 @@ const AUDIT_ARCH_X86_64=0xc000003e;
 const SECCOMP_RET_KILL_PROCESS=0x80000000;
 const SECCOMP_RET_ALLOW=0x7fff0000;
 const SECCOMP_RET_ERRNO_EPERM=0x00050001;
+const SECCOMP_RET_ERRNO_ENOSYS=0x00050026;
+const SYSCALL_CLONE=56;
+const SYSCALL_CLONE3=435;
+// CLONE_NEW{NS,CGROUP,UTS,IPC,USER,PID,NET,TIME}; unlike ordinary
+// CLONE_VM/CLONE_THREAD, these request new Linux isolation domains.
+const CLONE_NEW_NAMESPACE_MASK=0x7e020080;
 
 // Linux x86_64 syscall ABI only. NEVER apply numbers on an unknown
 // architecture or silently use a weakened filter.
@@ -57,6 +63,17 @@ export function seccompBpfInstructions():readonly FilterInstruction[]{
       ins(BPF_JEQ_K,0,1,value),
       ins(BPF_RET_K,0,0,SECCOMP_RET_ERRNO_EPERM),
     ]),
+    // clone3 flags live behind a user pointer; seccomp cannot safely inspect
+    // them. Return ENOSYS so glibc can fall back to the checked legacy clone
+    // path for Node/libuv thread startup instead of failing with EPERM.
+    ins(BPF_JEQ_K,0,1,SYSCALL_CLONE3),
+    ins(BPF_RET_K,0,0,SECCOMP_RET_ERRNO_ENOSYS),
+    // x86-64 clone(flags, stack, ...): args[0] low 32 bits are at offset 16.
+    // Reject nested namespaces but continue to allow ordinary thread cloning.
+    ins(BPF_JEQ_K,0,3,SYSCALL_CLONE),
+    ins(BPF_LD_W_ABS,0,0,16),
+    ins(BPF_JSET_K,0,1,CLONE_NEW_NAMESPACE_MASK),
+    ins(BPF_RET_K,0,0,SECCOMP_RET_ERRNO_EPERM),
     ins(BPF_RET_K,0,0,SECCOMP_RET_ALLOW),
   ];
 }

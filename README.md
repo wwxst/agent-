@@ -106,10 +106,10 @@
 - **M3 安全部署入口（已合并 main）**：新增 `startEnforcedToolHost`，要求 Linux Bubblewrap 以及已由宿主内核强制的 CPU/内存/PID cgroup v2 共享额度，验证命名空间 READY 和 launcher cgroup 归属；不满足条件坚决拒绝，不提供默认降级。新增 11 项测试。
 - **M3 Worker 独立 cgroup（已合并 main）**：新增 `startDedicatedToolHost`、受信 `cgroup-launcher` 先迁组再启动 Bubblewrap、独立叶子直接有限额度和空组强制检查、整组 `cgroup.kill` 退出与清理故障报告；新增 11 项策略/真实拒绝测试。尚无真实成功委派 cgroup 环境的正向验收。
 - **M3 Tool Host 内核身份校验（已合并 main）**：不再单纯相信 Worker READY 自报 namespace；父进程检查 Linux /proc 中唯一 Node Worker 的祖先关系、exe、真实编译入口和 namespace inode，并用 PID starttime 防替换，执行前重检。新增 8 项伪造身份与退出测试，现有真实 Bubblewrap 端到端加入 OS 身份验证断言。
-- **M3 Linux x86-64 seccomp（已合并 main）**：新增 opt-in `seccompPolicy:'network-and-privilege-deny-v1'`，构建固定 cBPF，匿名 FD3 传入 Bubblewrap，拒绝网络 socket/ptrace/namespace 等敏感 syscall；READY 和调用前查 Linux 内核过滤状态。新增 9 项测试，含真实 socket `EPERM` 和过滤下持久 Tool Receipt。
+- **M3 Linux x86-64 seccomp（已合并 main）**：新增 opt-in `seccompPolicy:'network-and-privilege-deny-v1'`，构建固定 cBPF，匿名 FD3 传入 Bubblewrap，拒绝网络 socket/ptrace/namespace 等敏感 syscall；READY 和调用前查 Linux 内核过滤状态。新增 10 项测试（含 clone namespace flag 阻断），含真实 socket `EPERM` 和过滤下持久 Tool Receipt。
 - **M3 安全工厂策略硬化（本轮分支）**：`startEnforcedToolHost`、`startDedicatedToolHost` 强制 Linux x86-64 已审核的 seccomp 配置，不支持则启动前拒绝；两个工厂拒绝外部注入的内部 `dedicatedCgroup` 描述，底层专有组构造器也不再接受未过滤路径。新增 9 项 fail-closed 测试，保留普通旧 Host 兼容。
 - **M3 SQLite 挂载目录收紧（本轮分支）**：Bubblewrap 仅允许专用 SQLite 主文件与 WAL/SHM/JOURNAL sidecar 同目录，其他文件、子目录、符号链接在 Worker 启动前拒绝；不声称已拆分 DB 主体写权限。新增 3 项安全拒绝测试。
-- **自动验证**：GitHub Actions Node 22.16.0 与 Node 22.x 运行 `npm run check` 和 `npm test`，目标累计 267 项；既有 1 项实际 inherited cgroup 正向验证在 CI 可能条件跳过。
+- **自动验证**：GitHub Actions Node 22.16.0 与 Node 22.x 运行 `npm run check` 和 `npm test`，目标累计 268 项；既有 1 项实际 inherited cgroup 正向验证在 CI 可能条件跳过。
 - **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/完整 seccomp allowlist/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
