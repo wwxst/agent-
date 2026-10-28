@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync,
+import {type Stats, closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync,
   readSync, realpathSync, renameSync, statSync, unlinkSync,
   writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
@@ -34,8 +34,8 @@ function inside(root:string,target:string):boolean{
   const rel=relative(root,target);
   return rel!==''&&!rel.startsWith('..'+sep)&&rel!=='..'&&!isAbsolute(rel);
 }
-function mustRegular(path:string):ReturnType<typeof lstatSync>{
-  const s=lstatSync(path);
+function mustRegular(path:string):Stats{
+  const s=lstatSync(path) as Stats;
   if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1)
     fail('WORKSPACE_UNSAFE_FILE','Refuse symlink, special file or hardlinked inode');
   if(typeof process.getuid==='function' && s.uid!==process.getuid())
@@ -60,17 +60,17 @@ function checkedTarget(root:string,path:string):{file:string;parent:string}{
     fail('WORKSPACE_UNSAFE_PATH','Resolved target is outside workspace');
   return {file,parent};
 }
-function readVersion(file:string):{text:string;stamp:ReturnType<typeof fstatSync>}{
+function readVersion(file:string):{text:string;stamp:Stats}{
   const before=mustRegular(file);
   const fd=openSync(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
   try{
-    const stamp=fstatSync(fd);
+    const stamp=fstatSync(fd) as Stats;
     if(!stamp.isFile()||stamp.nlink!==1||stamp.dev!==before.dev||stamp.ino!==before.ino)
       fail('WORKSPACE_UNSAFE_FILE','Target changed between path and handle inspection');
     const b=Buffer.allocUnsafe(MAX_FILE_BYTES+1);
     const n=readSync(fd,b,0,b.length,0);
     if(n>MAX_FILE_BYTES)fail('WORKSPACE_PATCH_TOO_LARGE','Source too large');
-    const after=fstatSync(fd);
+    const after=fstatSync(fd) as Stats;
     if(after.dev!==stamp.dev||after.ino!==stamp.ino||after.size!==n
       ||after.mtimeMs!==stamp.mtimeMs)
       fail('WORKSPACE_UNSAFE_FILE','File changed while being read');
@@ -81,7 +81,7 @@ function readVersion(file:string):{text:string;stamp:ReturnType<typeof fstatSync
     return {text,stamp};
   }finally{closeSync(fd);}
 }
-function sameIdentity(a:ReturnType<typeof fstatSync>,b:ReturnType<typeof fstatSync>):boolean{
+function sameIdentity(a:Stats,b:Stats):boolean{
   return a.dev===b.dev&&a.ino===b.ino&&a.mode===b.mode&&a.uid===b.uid
     &&a.gid===b.gid&&a.nlink===b.nlink;
 }
