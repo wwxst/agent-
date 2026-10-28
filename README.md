@@ -65,6 +65,7 @@
 35. [M3 Tool Host 内核侧进程身份验证](docs/31-M3-ToolHost-内核侧进程身份验证.md)：父进程独立核验 Worker 进程血缘、可执行代码与 namespace inode；PID 启动版本复核与 READY 伪造拒绝。
 36. [M3 Linux seccomp 网络与特权调用限制](docs/32-M3-Linux-Seccomp-网络与特权调用限制.md)：显式 x86-64 BPF syscall 拒绝、匿名 FD3 传入 Bubblewrap、Worker 内核过滤模式确认与真实 socket EPERM 验证。
 37. [M3 受控部署入口强制 seccomp](docs/33-M3-生产安全入口强制Seccomp与配置拒绝.md)：资源受限 Host 工厂必须同时验证 seccomp 配置与 cgroup，禁止调用方伪造内部迁组元数据。
+38. [M3 SQLite 专用挂载目录准入](docs/33-M3-ToolHost-SQLite专用挂载目录准入.md)：拒绝无关文件及 sidecar 符号链接被同目录 RW 暴露；不代表数据库写权限隔离。
 
 附加约束：
 
@@ -107,7 +108,8 @@
 - **M3 Tool Host 内核身份校验（已合并 main）**：不再单纯相信 Worker READY 自报 namespace；父进程检查 Linux /proc 中唯一 Node Worker 的祖先关系、exe、真实编译入口和 namespace inode，并用 PID starttime 防替换，执行前重检。新增 8 项伪造身份与退出测试，现有真实 Bubblewrap 端到端加入 OS 身份验证断言。
 - **M3 Linux x86-64 seccomp（已合并 main）**：新增 opt-in `seccompPolicy:'network-and-privilege-deny-v1'`，构建固定 cBPF，匿名 FD3 传入 Bubblewrap，拒绝网络 socket/ptrace/namespace 等敏感 syscall；READY 和调用前查 Linux 内核过滤状态。新增 9 项测试，含真实 socket `EPERM` 和过滤下持久 Tool Receipt。
 - **M3 安全工厂策略硬化（本轮分支）**：`startEnforcedToolHost`、`startDedicatedToolHost` 强制 Linux x86-64 已审核的 seccomp 配置，不支持则启动前拒绝；两个工厂拒绝外部注入的内部 `dedicatedCgroup` 描述，底层专有组构造器也不再接受未过滤路径。新增 9 项 fail-closed 测试，保留普通旧 Host 兼容。
-- **自动验证**：GitHub Actions Node 22.16.0 与 Node 22.x 运行 `npm run check` 和 `npm test`，目标累计 264 项；既有 1 项实际 inherited cgroup 正向验证在 CI 可能条件跳过。
+- **M3 SQLite 挂载目录收紧（本轮分支）**：Bubblewrap 仅允许专用 SQLite 主文件与 WAL/SHM/JOURNAL sidecar 同目录，其他文件、子目录、符号链接在 Worker 启动前拒绝；不声称已拆分 DB 主体写权限。新增 3 项安全拒绝测试。
+- **自动验证**：GitHub Actions Node 22.16.0 与 Node 22.x 运行 `npm run check` 和 `npm test`，目标累计 267 项；既有 1 项实际 inherited cgroup 正向验证在 CI 可能条件跳过。
 - **仍未具备**：生产级完整 OS 安全策略（独立 Worker cgroup 真机正向验证/完整 seccomp allowlist/DB 权限隔离/默认强制所有工具）、真实计费 API 端到端联调、生产鉴权与危险能力审批、受控 Recovery 修复、外部副作用工具、Subagent/MCP/Skills 和桌面/Web API。
 - **安装和测试**：Node.js **>=22.16.0**；运行 `npm install`、`npm run check`、`npm test`。由于 Node 22 的 SQLite API 仍是实验性功能，运行时可能提示 ExperimentalWarning。本阶段还没有提交可重复安装的锁文件。
 
