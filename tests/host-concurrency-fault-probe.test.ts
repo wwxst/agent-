@@ -1,7 +1,7 @@
 /*
- * Temporary research probe: actual ProcessToolHost IPC workers and SQLite ledger.
- * Assertions are safety invariants; no changes to production Host.
- * This file is deliberately NOT a main-branch regression test yet.
+ * Real-process regression guards for Host IPC and SQLite execution ledger.
+ * Verify abort fan-out as unknown and duplicate claims across Host workers.
+ * These test only the bounded read-only Worker, not arbitrary shell side effects.
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
