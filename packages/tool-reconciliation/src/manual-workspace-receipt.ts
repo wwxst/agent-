@@ -93,6 +93,10 @@ export class SqliteWorkspaceReceiptRepair {
 
       // Existing immutable reviews are *evidence*, not authorization. The
       // separate trusted callback must independently approve this operation.
+      const reviewTable=this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recovery_reviews'"
+      ).get();
+      if(!reviewTable)reject('REPAIR_REVIEW_REQUIRED','No initialized immutable review journal');
       const note=this.db.prepare(`
         SELECT 1 FROM recovery_reviews
         WHERE session_id=? AND review_id=? AND reviewer_id=?
