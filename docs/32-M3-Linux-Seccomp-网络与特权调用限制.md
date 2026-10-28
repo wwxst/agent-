@@ -62,7 +62,8 @@ await host.waitUntilReady();
 6. **真实 Linux Bubblewrap** 中 Node 网络 socket 创建返回明确 `EPERM`，与仅由 network namespace 导致的路由失败相区分；
 7. **真实 seccomp Worker** 继续执行 `read.echo` 并写入 SQLite Host Ledger 和 Kernel Receipt；父进程读取内核 Seccomp 模式；
 8. 缺失过滤 FD 的启动必须失败，绝不退回普通 Worker；
-9. 普通父进程或不存在的 PID 无法冒充已经附加 seccomp 的 Worker；\n10. 用精简 cBPF 指令解释器验证 **8 种新 namespace clone 标志均拒绝、普通 Node 线程 clone 放行、clone3 ENOSYS 回退**，同时回归既有 network/ABI 拦截。
+9. 普通父进程或不存在的 PID 无法冒充已经附加 seccomp 的 Worker；
+10. 用精简 cBPF 指令解释器验证 **8 种新 namespace clone 标志均拒绝、普通 Node 线程 clone 放行、clone3 ENOSYS 回退**，同时回归既有 network/ABI 拦截。
 
 现有 Node 22 / 22.16.0 严格 TypeScript 和完整测试结果，以 GitHub Actions 最终 PR SHA 为准。CI 缺乏独立 cgroup 委派导致的 1 项原有正向配额集成测试仍会明确跳过；**这不影响本轮真实 seccomp socket/Worker 验收**。
 
