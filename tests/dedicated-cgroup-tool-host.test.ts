@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {assertDedicatedCgroupReady,startDedicatedToolHost} from '../packages/tool-host/src/enforced.js';
+import {assertDedicatedCgroupReady,assertDedicatedWorkerCgroup,startDedicatedToolHost} from '../packages/tool-host/src/enforced.js';
 import {SqliteEventStore} from '../packages/event-store-sqlite/src/index.js';
 
 const budget={maxMemoryBytes:64*1024*1024,maxPids:12,maxCpuMillicores:250};
@@ -116,6 +116,87 @@ test('M3 dedicated: any one of leaf CPU/memory/PID over budget is a denial',()=>
       },file);
       writeFileSync(path,original);
     }
+  }finally{f.done();}
+});
+
+function workerFixture(f:ReturnType<typeof fixture>,pid=4123){
+  const proc=join(f.dir,'proc');
+  const pidDir=join(proc,String(pid));
+  mkdirSync(pidDir,{recursive:true});
+  const membership=join(pidDir,'cgroup');
+  writeFileSync(membership,'0::'+leaf+'\\n');
+  return {pid,proc,membership};
+}
+
+test('M3 dedicated runtime: verify actual Worker PID membership and direct leaf limits',()=>{
+  const f=fixture();
+  try{
+    const w=workerFixture(f);
+    assert.deepEqual(assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
+      relativePath:leaf,memoryBytes:budget.maxMemoryBytes,
+      pids:budget.maxPids,cpuMillicores:budget.maxCpuMillicores,
+    });
+  }finally{f.done();}
+});
+
+test('M3 dedicated runtime: moved Worker, ancestor and descendant groups fail closed',()=>{
+  const f=fixture();
+  try{
+    const w=workerFixture(f);
+    for(const moved of ['/supervisor','/supervisor/other',
+      leaf+'/unapproved-child','/other/same-name','/']){
+      writeFileSync(w.membership,'0::'+moved+'\\n');
+      assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
+        code:'HOST_CGROUP_BUDGET_UNSATISFIED',
+      },moved);
+    }
+    writeFileSync(w.membership,'0::'+leaf+'\\n');
+    for(const value of [0,-1,1.5,NaN]){
+      assert.throws(()=>assertDedicatedWorkerCgroup(value,leaf,budget,f.root,w.proc),{
+        code:'HOST_CGROUP_UNAVAILABLE',
+      });
+    }
+  }finally{f.done();}
+});
+
+test('M3 dedicated runtime: raising or removing any direct resource ceiling invalidates Worker',()=>{
+  const f=fixture();
+  try{
+    const w=workerFixture(f);
+    const modified=[
+      ['memory.max',String(budget.maxMemoryBytes+1)],
+      ['pids.max',String(budget.maxPids+1)],
+      ['cpu.max','25001 100000'],
+      ['memory.max','max'],
+    ] as const;
+    for(const [file,invalid] of modified){
+      const path=join(f.worker,file),before=readFileSync(path,'utf8');
+      writeFileSync(path,invalid);
+      assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),
+        {code:invalid==='max'?'HOST_CGROUP_UNAVAILABLE':'HOST_CGROUP_BUDGET_UNSATISFIED'},file);
+      writeFileSync(path,before);
+    }
+    assert.equal(assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc).cpuMillicores,250);
+  }finally{f.done();}
+});
+
+test('M3 dedicated runtime: missing kernel evidence and hostile mount paths never authorize a call',()=>{
+  const f=fixture();
+  try{
+    const w=workerFixture(f);
+    writeFileSync(w.membership,'0::/supervisor/agent-worker\\n0::/supervisor/agent-worker\\n');
+    assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
+      code:'HOST_CGROUP_UNAVAILABLE',
+    });
+    writeFileSync(w.membership,'0::'+leaf+'\\n');
+    assert.throws(()=>assertDedicatedWorkerCgroup(w.pid+1,leaf,budget,f.root,w.proc),{
+      code:'HOST_CGROUP_UNAVAILABLE',
+    });
+    renameSync(f.worker,f.worker+'-actual');
+    symlinkSync('/etc',f.worker);
+    assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
+      code:'HOST_CGROUP_UNAVAILABLE',
+    });
   }finally{f.done();}
 });
 
