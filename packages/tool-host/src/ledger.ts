@@ -153,6 +153,31 @@ export class HostExecutionLedger {
     });
   }
 
+  /**
+   * Trusted-only synchronous effect guard. A SQLite BEGIN IMMEDIATE guards
+   * final lease ownership, bounded trusted side effect, and ledger completion.
+   * Cross-resource atomicity is not claimed: after an interrupted rename,
+   * durable STARTED means UNKNOWN, never safe automatic retry.
+   * Do not pass untrusted/model-supplied code as the callback.
+   */
+  finishSuccessWithEffect(call:HostCall,content:string,effect:()=>void):void{
+    this.transaction(()=>{
+      this.owned(call.lease);
+      const row=this.db.prepare(`
+        SELECT 1 FROM host_tool_executions
+        WHERE session_id=? AND turn_id=? AND call_id=?
+          AND tool_name=? AND fence_token=? AND state='started'
+      `).get(call.lease.sessionId,call.turnId,call.callId,call.name,call.lease.fenceToken);
+      if(!row)throw new KernelError('TOOL_OUTCOME_UNKNOWN','Missing active execution claim');
+      effect();
+      const update=this.db.prepare(`
+        UPDATE host_tool_executions SET state='succeeded', content=?
+        WHERE session_id=? AND turn_id=? AND call_id=?
+          AND tool_name=? AND fence_token=? AND state='started'
+      `).run(content,call.lease.sessionId,call.turnId,call.callId,call.name,call.lease.fenceToken);
+      if(update.changes!==1)throw new KernelError('TOOL_OUTCOME_UNKNOWN','Execution claim vanished');
+    });
+  }
   /** Audit is read-only; 'started' after a crash must be treated as unknown. */
   inspect(sessionId: string): readonly HostLedgerEntry[] {
     if (!sessionId.trim()) throw new KernelError('INVALID_SESSION', 'sessionId required');

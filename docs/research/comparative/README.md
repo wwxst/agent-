@@ -32,6 +32,7 @@
 | **[21 编码工作流能力边界与动态实验](21-编码工作流能力边界与动态实验-2026-10-28.md)** | GitHub CI 中的真实“读→修改→测试失败→修复→测试通过”实验；明确区分脚本式不安全适配器与正式写工具拒绝路径 |
 | **[22 真实 Bubblewrap Workspace 写入范围实验](22-真实Bubblewrap-Workspace执行边界-2026-10-28.md)** | 默认只读 Workspace、受限可写子目录、宿主秘密/符号链接/网络边界与真实失败修复复测的 Linux CI 证据；不等于生产 Host 已支持编码 |
 | **[23 第九轮 Workspace 控制/执行隔离与纯补丁规划](23-Workspace执行隔离与纯补丁规划-2026-10-28.md)** | 真实 CI 发现硬链接跨只读路径改写内容和旧 Host DB 挂载暴露；分离 Stage 执行与账本；纯 SHA-256 CAS 补丁预览 |
+| **[24 可信 Workspace 条件提交与 Host Ledger](24-可信Workspace提交器与HostLedger实证-2026-10-28.md)** | Linux 普通文件原子替换、版本校验、租约写事务和 STARTED/UNKNOWN 实证；仍未开放模型写权限或完整 Kernel 收据协调 |
 | [ADR 0005 首版自主内核技术基线](../../adr/0005-首版自主内核技术基线与取舍.md) | 推荐技术选择（Proposed，尚待批准） |
 
 原 Claude Code 专题分析及 2.1.88 Source Map 研究还在 [旧版与专题目录](../claude-code/README.md)；本轮新版文件研究以 **01** 为准。
