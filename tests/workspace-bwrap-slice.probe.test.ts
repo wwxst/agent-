@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, hardlinkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,4 +158,43 @@ test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; oth
     assert.equal(readFileSync(f.source,'utf8'),'export const add=(a,b)=>a+b;\n');
     assert.equal(readFileSync(f.protectedFile,'utf8'),'immutable');
   }finally{listener.close();f.done();}
+});
+
+
+test('WORKSPACE-OBS-03: a hardlink in writable src can mutate protected content outside that directory',t=>{
+  if(!supported())return t.skip('Bubblewrap/user namespaces unavailable');
+  const f=tmp();
+  try{
+    const alias=join(f.writable,'protected-hardlink.txt');
+    hardlinkSync(f.protectedFile,alias);
+    const base=buildBubblewrapLaunch(sandbox(),f.db,compiledRoot,worker);
+    const cut=base.argv.lastIndexOf('--');
+    assert.ok(cut>=0);
+    const script="import * as fs from 'node:fs';try{fs.writeFileSync(process.argv[1],'changed-via-hardlink');console.log('WROTE');}catch(err){console.log('DENIED '+err.code);}";
+    const args=[...base.argv.slice(0,cut),'--ro-bind',f.workspace,f.workspace,
+      '--bind',f.writable,f.writable,'--',nodeBinary,'--input-type=module','-e',script,alias];
+    const out=spawnSync(base.executable,args,{encoding:'utf8',env:{},timeout:7500});
+    assert.equal(out.status,0,out.stderr);
+    // Negative safety observation; must NOT become a production behavior contract.
+    assert.match(out.stdout,/WROTE/);
+    assert.equal(readFileSync(f.protectedFile,'utf8'),'changed-via-hardlink');
+  }finally{f.done();}
+});
+
+test('WORKSPACE-OBS-04: reusing the old Host mount exposes writable SQLite to project code',t=>{
+  if(!supported())return t.skip('Bubblewrap/user namespaces unavailable');
+  const f=tmp();
+  try{
+    const base=buildBubblewrapLaunch(sandbox(),f.db,compiledRoot,worker);
+    const cut=base.argv.lastIndexOf('--');
+    assert.ok(cut>=0);
+    const script="import * as fs from 'node:fs';fs.appendFileSync(process.argv[1],'PROJECT_WAS_HERE');console.log('WROTE');";
+    const args=[...base.argv.slice(0,cut),'--ro-bind',f.workspace,f.workspace,
+      '--bind',f.writable,f.writable,'--',
+      nodeBinary,'--input-type=module','-e',script,f.db];
+    const out=spawnSync(base.executable,args,{encoding:'utf8',env:{},timeout:7500});
+    assert.equal(out.status,0,out.stderr);
+    assert.match(out.stdout,/WROTE/);
+    assert.equal(readFileSync(f.db,'utf8'),'PROJECT_WAS_HERE');
+  }finally{f.done();}
 });
