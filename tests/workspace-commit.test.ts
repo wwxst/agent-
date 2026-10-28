@@ -89,6 +89,8 @@ test('WORKSPACE-COMMIT-03: missing durable intent, authorization denial and canc
   const controller=new TrustedWorkspaceCommitController(f.db,f.root,()=>{});
   try{
     const lease=leases.acquire('commit-03','trusted',15000);assert.ok(lease);
+    // An empty but initialized journal must reject an unpersisted call as HOST_INTENT_MISSING.
+    const initialized=new SqliteEventStore(f.db,lease);initialized.close();
     const noIntent:HostCall={lease,turnId:'none',callId:'nope',
       name:'workspace.patch',input:input()};
     assert.throws(()=>controller.commit(noIntent,new AbortController().signal),
