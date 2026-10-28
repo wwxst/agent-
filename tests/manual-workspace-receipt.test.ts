@@ -222,3 +222,34 @@ test('RECEIPT-BRIDGE-05: forged Host result and completed Turn cannot be repaire
     assert.equal(report(f.db,'bridge-bad').lastSeq,6);
   }finally{f.cleanup();}
 });
+
+test('RECEIPT-BRIDGE-06: terminal Turn cannot receive a late synthetic receipt',async()=>{
+  const f=fixture();
+  try{
+    const initial=f.leases.acquire('bridge-terminal','original',15000);assert.ok(initial);
+    const call=await seed(f.db,initial);
+    const ledger=new HostExecutionLedger(f.db);
+    try{
+      ledger.begin(call);
+      ledger.finish(call,'succeeded',digest(original));
+    }finally{ledger.close();}
+    const journal=new SqliteEventStore(f.db,initial);
+    try{
+      await journal.append('bridge-terminal',6,[{
+        type:'turn.completed',turnId:'turn',data:{},
+      }]);
+    }finally{journal.close();}
+    const prior=report(f.db,'bridge-terminal');
+    assert.equal(prior.pendingTurnId,undefined);
+    assert.equal(prior.calls[0]?.status,'host_finished_without_receipt');
+    reviewed(f.db,'bridge-terminal',prior.evidenceHash);
+    assert.equal(f.leases.release(initial),true);
+    const successor=f.leases.acquire('bridge-terminal','next',15000);assert.ok(successor);
+    const repair=new SqliteWorkspaceReceiptRepair(f.db,()=>{});
+    try{
+      assert.throws(()=>repair.repair(request(successor,prior.evidenceHash)),
+        {code:'REPAIR_TURN_NOT_PENDING'});
+    }finally{repair.close();}
+    assert.equal(report(f.db,'bridge-terminal').lastSeq,7);
+  }finally{f.cleanup();}
+});
