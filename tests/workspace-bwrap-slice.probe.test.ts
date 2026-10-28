@@ -6,6 +6,8 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -79,10 +81,16 @@ test('WORKSPACE-OS-01: read-only repository must reject direct source mutation',
     assert.equal(readFileSync(f.source,'utf8'),'export const add=(a,b)=>a-b;\n');
   }finally{f.done();}
 });
-test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; other mounts stay protected',t=>{
+test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; other mounts stay protected',async t=>{
   if(!supported())return t.skip('Bubblewrap/user namespaces unavailable');
   const f=tmp();
+  const listener=createServer(socket=>{socket.destroy();});
   try{
+    listener.listen(0,'127.0.0.1');
+    await once(listener,'listening');
+    const address=listener.address();
+    assert.ok(address && typeof address!=='string');
+    const port=address.port;
     const base=buildBubblewrapLaunch(sandbox(),f.db,compiledRoot,worker);
     const cut=base.argv.lastIndexOf('--');
     assert.ok(cut>=0);
@@ -96,7 +104,7 @@ test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; oth
     const inspect=String.raw`
       import * as fs from 'node:fs';
       import * as net from 'node:net';
-      const [source,locked,secret,secretLink,lockedLink,compiled]=process.argv.slice(1);
+      const [source,locked,secret,secretLink,lockedLink,compiled,port]=process.argv.slice(1);
       let sourceReadable=false,lockedReadable=false,secretReadable=false,
         writableSource=false,writableLocked=false,writableLockedThroughLink=false,
         readableSecretThroughLink=false,writableCode=false,networkConnected=false;
@@ -109,7 +117,7 @@ test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; oth
       try{fs.writeFileSync(lockedLink,'changed');writableLockedThroughLink=true;}catch{}
       try{fs.writeFileSync(compiled+'/MUST_NOT_WRITE','no');writableCode=true;}catch{}
       networkConnected=await new Promise(resolve=>{
-        const socket=net.connect({host:'127.0.0.1',port:9});
+        const socket=net.connect({host:'127.0.0.1',port:Number(port)});
         socket.once('connect',()=>{socket.destroy();resolve(true);});
         socket.once('error',()=>resolve(false));
         socket.setTimeout(500,()=>{socket.destroy();resolve(false);});
@@ -121,7 +129,7 @@ test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; oth
     const check=run(['--input-type=module','-e',inspect,
       f.source,f.protectedFile,f.secret,
       join(f.writable,'link-to-parent-secret'),
-      join(f.writable,'link-to-readonly-spec'),compiledRoot]);
+      join(f.writable,'link-to-readonly-spec'),compiledRoot,String(port)]);
     assert.equal(check.status,0,check.stderr);
     assert.deepEqual(JSON.parse(check.stdout.trim()),{
       sourceReadable:true,lockedReadable:true,secretReadable:false,
@@ -149,5 +157,5 @@ test('WORKSPACE-OS-02: writable subdirectory permits actual fail/fix/retest; oth
     assert.equal(passing.status,0,passing.stdout+'\n'+passing.stderr);
     assert.equal(readFileSync(f.source,'utf8'),'export const add=(a,b)=>a+b;\n');
     assert.equal(readFileSync(f.protectedFile,'utf8'),'immutable');
-  }finally{f.done();}
+  }finally{listener.close();f.done();}
 });
