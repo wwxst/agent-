@@ -31,6 +31,7 @@
 | **[20 真实 Tool Host 并发取消与 Linux 隔离复核](20-真实ToolHost并发故障及沙箱复核-2026-10-28.md)** | ProcessToolHost 双 Worker 竞争与取消的 CI 动态测试，并校正 GitHub Actions 中已运行的 Linux Namespace/Seccomp 证据等级 |
 | **[21 编码工作流能力边界与动态实验](21-编码工作流能力边界与动态实验-2026-10-28.md)** | GitHub CI 中的真实“读→修改→测试失败→修复→测试通过”实验；明确区分脚本式不安全适配器与正式写工具拒绝路径 |
 | **[22 真实 Bubblewrap Workspace 写入范围实验](22-真实Bubblewrap-Workspace执行边界-2026-10-28.md)** | 默认只读 Workspace、受限可写子目录、宿主秘密/符号链接/网络边界与真实失败修复复测的 Linux CI 证据；不等于生产 Host 已支持编码 |
+| **[23 第九轮 Workspace 控制/执行隔离与纯补丁规划](23-Workspace执行隔离与纯补丁规划-2026-10-28.md)** | 真实 CI 发现硬链接跨只读路径改写内容和旧 Host DB 挂载暴露；分离 Stage 执行与账本；纯 SHA-256 CAS 补丁预览 |
 | [ADR 0005 首版自主内核技术基线](../../adr/0005-首版自主内核技术基线与取舍.md) | 推荐技术选择（Proposed，尚待批准） |
 
 原 Claude Code 专题分析及 2.1.88 Source Map 研究还在 [旧版与专题目录](../claude-code/README.md)；本轮新版文件研究以 **01** 为准。
