@@ -36,9 +36,10 @@ await host.waitUntilReady();
 拒绝集包括：
 - 网络 socket 创建、socketpair、connect、bind、listen、accept/accept4、sendto、sendmsg、recvmsg 等；
 - ptrace、process_vm_writev、unshare、setns、mount/umount2/pivot_root；
+- 通过传统 `clone(flags,...)` 建立新 mount/cgroup/UTS/IPC/user/PID/network/time namespace 的标志，逐位检查 `seccomp_data.args[0]` 后返回 `EPERM`；`clone3` 的 flag 结构体位于用户态指针，cBPF 不能安全解引用，因此专门返回 `ENOSYS`，促使 libc 回退到受标志检查的传统 `clone`。
 - bpf、perf_event_open、内核模块修改、部分 keyring/kernel reboot/kexec、userfaultfd、io_uring 系统调用。
 
-保留基础 Node.js/V8/libuv/SQLite WAL 工作所需的 `read/write/open/openat/clone/execve/futex/mmap` 等 syscall。**因而这不是任意代码的安全执行平台**：仍可 fork/exec 已挂载的受信文件；SQLite 目录仍有 RW 权限，也未加入完整路径政策、cgroup 独占分配、系统级 LSM 或 seccomp allowlist。只靠禁用系统调用不能撤回已经发生的工具副作用。
+保留基础 Node.js/V8/libuv/SQLite WAL 工作所需的 `read/write/open/openat/execve/futex/mmap` 及**未携带新 namespace 标志的传统 `clone`** 等 syscall。**因而这不是任意代码的安全执行平台**：仍可 fork/exec 已挂载的受信文件；SQLite 目录仍有 RW 权限，也未加入完整路径政策、cgroup 独占分配、系统级 LSM 或 seccomp allowlist。只靠禁用系统调用不能撤回已经发生的工具副作用。
 
 ## 内核证明与失败语义
 
@@ -51,7 +52,7 @@ await host.waitUntilReady();
 
 ## 测试
 
-新增 `tests/seccomp-tool-host.test.ts` **9 项**（原 246 项，目标 255 项）：
+`tests/seccomp-tool-host.test.ts` 现有 **10 项**（本轮从 9 项增加 1 项）：
 
 1. 固定 cBPF 字节序、Linux arch 检查、x32 syscall 拒绝；
 2. 明确 deny syscall 与 Node/SQLite 启动保留 syscall；
@@ -61,13 +62,13 @@ await host.waitUntilReady();
 6. **真实 Linux Bubblewrap** 中 Node 网络 socket 创建返回明确 `EPERM`，与仅由 network namespace 导致的路由失败相区分；
 7. **真实 seccomp Worker** 继续执行 `read.echo` 并写入 SQLite Host Ledger 和 Kernel Receipt；父进程读取内核 Seccomp 模式；
 8. 缺失过滤 FD 的启动必须失败，绝不退回普通 Worker；
-9. 普通父进程或不存在的 PID 无法冒充已经附加 seccomp 的 Worker。
+9. 普通父进程或不存在的 PID 无法冒充已经附加 seccomp 的 Worker；\n10. 用精简 cBPF 指令解释器验证 **8 种新 namespace clone 标志均拒绝、普通 Node 线程 clone 放行、clone3 ENOSYS 回退**，同时回归既有 network/ABI 拦截。
 
 现有 Node 22 / 22.16.0 严格 TypeScript 和完整测试结果，以 GitHub Actions 最终 PR SHA 为准。CI 缺乏独立 cgroup 委派导致的 1 项原有正向配额集成测试仍会明确跳过；**这不影响本轮真实 seccomp socket/Worker 验收**。
 
 ## 下一步与明确未完成
 
-- 进一步采用 **经过平台测试的 seccomp allowlist** 或分阶段安装 Node 运行时收敛策略；不能直接禁止 `clone/execve` 破坏 Node 自身启动并称为安全增强。
+- 进一步采用 **经过平台测试的 seccomp allowlist** 或分阶段安装 Node 运行时收敛策略；目前 `clone3` 拒绝走的是 libc 兼容回退路径，并非所有 Linux 发行版/运行时的实测兼容保证。不能直接禁止所有 `clone/execve` 破坏 Node 自身启动并称为安全增强。
 - Linux arm64 独立审核 syscall ABI 后再引入，不猜测 syscall 编号。
 - 结合独立 cgroup 真机正向验证、可信 supervisor、持续配额、Linux LSM/ptrace 限制和 OS 密钥隔离；完整第三方工具副作用审计与认证审批仍未实现。
 - seccomp 可阻断一类 syscall，**不代表任意恶意代码、数据库写权限或同用户进程均已被可靠隔离**。Shell、网络、文件写入和其他高风险副作用工具继续禁用。
