@@ -124,7 +124,7 @@ function workerFixture(f:ReturnType<typeof fixture>,pid=4123){
   const pidDir=join(proc,String(pid));
   mkdirSync(pidDir,{recursive:true});
   const membership=join(pidDir,'cgroup');
-  writeFileSync(membership,'0::'+leaf+'\\n');
+  writeFileSync(membership,'0::'+leaf+'\n');
   return {pid,proc,membership};
 }
 
@@ -145,12 +145,12 @@ test('M3 dedicated runtime: moved Worker, ancestor and descendant groups fail cl
     const w=workerFixture(f);
     for(const moved of ['/supervisor','/supervisor/other',
       leaf+'/unapproved-child','/other/same-name','/']){
-      writeFileSync(w.membership,'0::'+moved+'\\n');
+      writeFileSync(w.membership,'0::'+moved+'\n');
       assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
         code:'HOST_CGROUP_BUDGET_UNSATISFIED',
       },moved);
     }
-    writeFileSync(w.membership,'0::'+leaf+'\\n');
+    writeFileSync(w.membership,'0::'+leaf+'\n');
     for(const value of [0,-1,1.5,NaN]){
       assert.throws(()=>assertDedicatedWorkerCgroup(value,leaf,budget,f.root,w.proc),{
         code:'HOST_CGROUP_UNAVAILABLE',
@@ -184,11 +184,11 @@ test('M3 dedicated runtime: missing kernel evidence and hostile mount paths neve
   const f=fixture();
   try{
     const w=workerFixture(f);
-    writeFileSync(w.membership,'0::/supervisor/agent-worker\\n0::/supervisor/agent-worker\\n');
+    writeFileSync(w.membership,'0::/supervisor/agent-worker\n0::/supervisor/agent-worker\n');
     assert.throws(()=>assertDedicatedWorkerCgroup(w.pid,leaf,budget,f.root,w.proc),{
       code:'HOST_CGROUP_UNAVAILABLE',
     });
-    writeFileSync(w.membership,'0::'+leaf+'\\n');
+    writeFileSync(w.membership,'0::'+leaf+'\n');
     assert.throws(()=>assertDedicatedWorkerCgroup(w.pid+1,leaf,budget,f.root,w.proc),{
       code:'HOST_CGROUP_UNAVAILABLE',
     });
