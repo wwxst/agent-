@@ -41,6 +41,7 @@
 | M3-30 | [独立 Worker cgroup 与整组终止](30-M3-独立Worker-cgroup与整组终止边界.md) | 受信预创建空叶子、直接额度、先迁组再启动 Worker 和 cgroup.kill；正向内核集成待验证 |
 | M3-31 | [Tool Host 内核侧进程身份验证](31-M3-ToolHost-内核侧进程身份验证.md) | READY 前独立核验 /proc 子孙 PID、真实 exe/argv、四类 namespace 和启动版本，调用前重检 |
 | M3-32 | [Linux seccomp 网络与特权调用限制](32-M3-Linux-Seccomp-网络与特权调用限制.md) | 显式 x86-64 classic BPF、FD3 无名传递、真实网络 syscall EPERM、内核过滤层核验 |
+| M3-33B | [Tool Host SQLite 专用挂载目录准入](33-M3-ToolHost-SQLite专用挂载目录准入.md) | 禁止同一 RW 目录携带凭据、备份、符号链接或其他数据文件；明确保留数据库写入风险 |
 | M3-33 | [受限部署入口强制 seccomp](33-M3-生产安全入口强制Seccomp与配置拒绝.md) | 两类安全 Host 工厂必须带已验证 profile，阻止外部专用迁组描述与配置遗漏时弱化 |
 | 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
 | 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 15 份文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
