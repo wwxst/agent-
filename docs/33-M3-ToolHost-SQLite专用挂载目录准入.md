@@ -28,6 +28,6 @@
 2. 尽管名称符合允许的 `-wal` 后缀，符号链接仍拒绝；
 3. 正常的真实 SQLite 主文件以及可选 WAL/SHM 普通文件允许，生成的 RW mount 仍只指向该目录。
 
-原有完整隔离、真实 Tool Intent/Receipt、Writer Lease、seccomp、cgroup 和恢复阻断测试保持执行。基线 255 项，新增 3 项，目标 258 项；最终通过数量必须以对应 PR 的双版本 CI 为准。
+原有完整隔离、真实 Tool Intent/Receipt、Writer Lease、seccomp、cgroup 和恢复阻断测试保持执行。基线 264 项，新增 3 项，目标 267 项；最终通过数量必须以对应 PR 的双版本 CI 为准。
 
 参考：[27 Linux Bubblewrap 强制隔离](27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md)、[32 Linux seccomp](32-M3-Linux-Seccomp-网络与特权调用限制.md)。
