@@ -44,7 +44,7 @@ try{
 2. 该叶子组**本身**就已经设定 `memory.max`、`pids.max`、`cpu.max` 的有限强制额度，不允许只从祖先继承，也不接受单一维度没有额度上限。配额超过受信部署要求则拒绝。
 3. 叶子组的 `cgroup.events` 需要显示 `populated 0`，`cgroup.procs` 为空，且 `cgroup.procs` 和 `cgroup.kill` 都有写入能力；不能误杀共享组或旧进程。预检是运行前检测，无法防御另一个特权 Supervisor 之后故意迁入其他进程。
 4. 子组不得是 Controller 自身当前的 cgroup，而必须严格处于其子树之内；拒绝 `..`、绝对路径逃逸、符号链接绕过。
-5. 受信部署必须在 Worker 使用期间避免重用该 cgroup 路径，确认所有进程退出后才能销毁目录或再次复用。同 OS 用户/管理员若能修改 cgroup 配置，可能在检查后修改额度，尚无持续硬锁定措施。
+5. 受信部署必须在 Worker 使用期间避免重用该 cgroup 路径，确认所有进程退出后才能销毁目录或再次复用。同 OS 用户/管理员若能修改 cgroup 配置，可能在检查点之间修改额度；本轮新增 READY/每次 ToolCall 前重检，但**不是持续硬锁定或执行期间的实时控制**。
 
 ## 实际启动顺序（防迁组竞态）
 
@@ -52,7 +52,8 @@ try{
 - `ProcessToolHost` 不直接启动 Bubblewrap，而用 `node cgroup-launcher.js <leaf> <budget> <trusted-bwrap> <argv...>` 创建受信中间进程；Launcher 使用空环境、无 Shell、无模型可控命令；
 - `cgroup-launcher.ts` **先写自己的 PID 到叶子的 `cgroup.procs`**，再核对其 `/proc/self/cgroup` 已属于请求叶子，并复核直接额度；
 - 以上都通过后才 `spawn` 真正的 Bubblewrap Worker。Bubblewrap 子进程与未来子进程继承叶子 cgroup，原有 mount/user/PID/network namespace、private tmpfs、Worker namespace Ready、Host Ledger Fencing 与 Intent/Receipt 全部继续生效；
-- 父端只在 Worker namespace READY 之后读取 `/proc/<launcher-pid>/cgroup`，确认仍在独立叶子，复核叶子直接配额，才返回可用的 Host。
+- 父端在 Worker namespace READY 之后同时核验 **launcher 与内核认证 Worker 的 PID**：读取 `/proc/<worker-pid>/cgroup`，要求 Worker 本身与指定叶子**完全同路径**；再读取叶子本身三项直接有限额度，才能将 READY 视为可用。仅验证 launcher 不足以证明 Worker 仍在叶子内。
+- `ProcessToolHost.invoke()` 在**每次 ToolCall 写入 IPC 前**，依次复核 Worker PID starttime / namespace / seccomp（按模式启用）、Worker cgroup membership 和叶子直接 CPU/内存/PID 额度。路径漂移、超额、无限额、丢失 /proc 证据一律拒绝调用并关闭 Host；已开始的调用仍按未知结果对账。受信预算在 Host 初始化时复制，防止外部配置对象之后修改。
 
 **安全意义**：不能先运行 Worker 再异步把它搬进 cgroup，否则启动到迁组之间可能有不受资源限制的工具执行窗口。本实现不采用这种易错做法。
 
@@ -64,7 +65,7 @@ try{
 
 ## 测试与未验证条件
 
-新增 `tests/dedicated-cgroup-tool-host.test.ts` **11 项**：
+`tests/dedicated-cgroup-tool-host.test.ts` 增至 **15 项**（新增运行期拒绝测试 4 项）：
 
 - 空的、严格位于父 cgroup 下的叶子与直接有限额度能够通过纯文件系统的策略检查；
 - 叶子本身无限额即使祖先有限仍拒绝；微小 CPU 超额按 millicores 向上取整，不能以截断方式错误放行；
@@ -72,14 +73,15 @@ try{
 - 错误层级、逃逸路径、符号链接与三项资源任何一项过预算都拒绝；
 - 缺失 Bubblewrap/Leaf 参数的安全入口不得启动；
 - 真实 Linux 缺少目标委派目录时 fail-closed；
-- **真实受信 launcher 进程**请求无效迁组时，所带子命令不会执行，不会创建测试标记文件。
+- **真实受信 launcher 进程**请求无效迁组时，所带子命令不会执行，不会创建测试标记文件；
+- 纯文件系统 /proc+cgroup fixture 验证 Worker 正确路径准入、迁到祖先或子孙组拒绝、直接额度被放宽/移除立即拒绝、无进程证据或符号链接逃逸拒绝。
 
-累计目标由 227 增至 **238 项**；Node 22 / 22.16.0 的 `npm run check` 与 `npm test` 以 PR CI 最终结果为准。上述纯文件夹模拟只是验证**策略和错误分支**，不是 Linux cgroup 2 控制器端到端成功迁组与强制限额测试。完成这项正向验证需要支持 `cgroup.subtree_control` 委派和 `cgroup.kill` 的隔离 CI runner 或专用受信 Linux VM。
+这 4 项增量以本轮基线 267 项计算，独立 PR 的测试目标为 **271 项**；Node 22 / 22.16.0 的 `npm run check` 与 `npm test` 以本轮 PR CI 最终结果为准。上一轮尚未合并的 seccomp PR #29 另有 1 项测试，合并顺序将改变最终累计数。上述纯文件夹模拟只是验证**策略和错误分支**，不是 Linux cgroup 2 控制器端到端成功迁组与强制限额测试。完成这项正向验证需要支持 `cgroup.subtree_control` 委派和 `cgroup.kill` 的隔离 CI runner 或专用受信 Linux VM。
 
 ## 仍未完成的能力
 
 - 未实现由本仓库进程**自动、安全、原子创建并配置**内核子组；创建/生命周期归属仍由受信 Supervisor 或运行平台承担。
-- 没有对每个 Worker 独立 CPU/内存/PID 压测的真机正向证据、没有不可篡改的 Host/OS 身份签名或 seccomp syscall allowlist。
+- 没有对每个 Worker 独立 CPU/内存/PID 压测的真机正向证据、没有配额修改与校验之间 TOCTOU 的内核级原子锁、没有不可篡改的 Host/OS 身份签名或 seccomp syscall allowlist。
 - Cgroup 路径复用与有特权进程恶意操作、持久审计的 OS 侧证据链依然需要设计；cgroup.kill 成功也不能回滚已执行副作用。
 - 旧 `ProcessToolHost` 的普通 Node fork 与 Bubblewrap-only 构造方式仍兼容存在；不能称所有 Host 自动强制隔离。
 - 不开放高风险工具，不会自动继续或重放任何未知结果。
