@@ -30,6 +30,7 @@
 | **[19 完整 Kernel 动态验证（第五轮）](19-完整Kernel动态验证-2026-10-28.md)** | 固定提交在 GitHub Actions 上实际运行 5 项观察探针；区分完整 Kernel 与 Scheduler 证据，尚无参考内核动态横向基准 |
 | **[20 真实 Tool Host 并发取消与 Linux 隔离复核](20-真实ToolHost并发故障及沙箱复核-2026-10-28.md)** | ProcessToolHost 双 Worker 竞争与取消的 CI 动态测试，并校正 GitHub Actions 中已运行的 Linux Namespace/Seccomp 证据等级 |
 | **[21 编码工作流能力边界与动态实验](21-编码工作流能力边界与动态实验-2026-10-28.md)** | GitHub CI 中的真实“读→修改→测试失败→修复→测试通过”实验；明确区分脚本式不安全适配器与正式写工具拒绝路径 |
+| **[22 真实 Bubblewrap Workspace 写入范围实验](22-真实Bubblewrap-Workspace执行边界-2026-10-28.md)** | 默认只读 Workspace、受限可写子目录、宿主秘密/符号链接/网络边界与真实失败修复复测的 Linux CI 证据；不等于生产 Host 已支持编码 |
 | [ADR 0005 首版自主内核技术基线](../../adr/0005-首版自主内核技术基线与取舍.md) | 推荐技术选择（Proposed，尚待批准） |
 
 原 Claude Code 专题分析及 2.1.88 Source Map 研究还在 [旧版与专题目录](../claude-code/README.md)；本轮新版文件研究以 **01** 为准。
@@ -56,3 +57,5 @@
 上述 16–18 是新一轮**研究文档**：第三轮与第四轮的 Node.js 隔离观察确已运行，但不是完整 AgentKernel 端到端、不是 Codex/Pi/Claude 动态对照，也不是 Linux OS 沙箱安全认证。文中的 `PASS` 指观察测试符合预期，其中部分预期本身是在复现设计缺口。
 
 原始 ZIP 证据包（包含源码副本、TAP 日志和待运行探针）当前以研究对话附件形式保留，**不包含在本次 docs-only 提交中**。因此 GitHub 上的报告可以直接阅读和审阅，但不应将本目录误当作已经具备全部原始试验工件的可独立重放归档。上述声明描述 16–18 号文件的原始研究阶段；现已在第 19 号报告中完成固定基线 **5 项全仓 CI 观察探针**（其中两项贯穿完整 Kernel，另外三项覆盖完整构建中的 ToolScheduler）。第 20 号报告补充了 GitHub Actions 上实际执行的 Linux Bubblewrap/Seccomp 隔离测试，以及新运行的进程内并发取消、Worker 竞争和 SQLite 账本实证。**专用 cgroup 真实部署、跨 OS/内核平台、外部副作用崩溃恢复，以及 Codex/Pi/Claude 同条件动态比较仍 NOT RUN**。最终架构决策仍待同条件实验。
+
+第 22 号报告进一步验证了**研究用 Linux Namespace Workspace Mount** 可以支持限定子目录的真实修改与测试闭环，但该测试进程未接入生产 Tool Host 的审批、强制 Seccomp 与持久收据。**不能把它当作已经开放生产编码权限。**
