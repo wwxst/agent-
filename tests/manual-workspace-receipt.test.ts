@@ -4,6 +4,7 @@ import {mkdtempSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
 import {AgentKernel} from '../packages/kernel-core/src/index.js';
 import {ToolRegistry} from '../packages/tool-scheduler/src/index.js';
 import {FakeProvider} from '../packages/model-providers/src/fake.js';
@@ -251,5 +252,41 @@ test('RECEIPT-BRIDGE-06: terminal Turn cannot receive a late synthetic receipt',
         {code:'REPAIR_TURN_NOT_PENDING'});
     }finally{repair.close();}
     assert.equal(report(f.db,'bridge-terminal').lastSeq,7);
+  }finally{f.cleanup();}
+});
+
+test('RECEIPT-BRIDGE-07: revoked grant inside final SQLite writer lock never appends receipt',async()=>{
+  const f=fixture();
+  try{
+    const initial=f.leases.acquire('bridge-revoked','original',15000);assert.ok(initial);
+    const call=await seed(f.db,initial);
+    const ledger=new HostExecutionLedger(f.db);
+    try{ledger.begin(call);ledger.finish(call,'succeeded',digest(original));}
+    finally{ledger.close();}
+    const before=report(f.db,'bridge-revoked');
+    reviewed(f.db,'bridge-revoked',before.evidenceHash);
+    assert.equal(f.leases.release(initial),true);
+    const successor=f.leases.acquire('bridge-revoked','next',15000);assert.ok(successor);
+    const init=new DatabaseSync(f.db);
+    try{
+      init.exec('CREATE TABLE manual_grant_state (enabled INTEGER NOT NULL)');
+      init.prepare('INSERT INTO manual_grant_state (enabled) VALUES (1)').run();
+    }finally{init.close();}
+    let attempts=0;
+    const repair=new SqliteWorkspaceReceiptRepair(f.db,(_request,db)=>{
+      attempts++;
+      const row=db.prepare('SELECT enabled FROM manual_grant_state').get();
+      if(row?.enabled!==1)throw new Error('durable manual grant revoked');
+      // Simulate a real revocation after the outside-of-transaction check.
+      if(attempts===1){
+        db.prepare('UPDATE manual_grant_state SET enabled=0').run();
+      }
+    });
+    try{
+      assert.throws(()=>repair.repair(request(successor,before.evidenceHash)),
+        /durable manual grant revoked/);
+      assert.equal(attempts,2);
+    }finally{repair.close();}
+    assert.equal(report(f.db,'bridge-revoked').lastSeq,6);
   }finally{f.cleanup();}
 });

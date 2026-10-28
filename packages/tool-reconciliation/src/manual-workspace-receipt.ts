@@ -32,7 +32,14 @@ export interface WorkspaceReceiptRepairResult {
   /** The incomplete turn must remain blocked for independent recovery. */
   readonly pendingTurnId: string;
 }
-export type WorkspaceReceiptRepairAuthorization = (request:WorkspaceReceiptRepairRequest)=>void;
+// Authorization must be a synchronous, transaction-compatible trusted check.
+// It receives THIS SAME SQLite connection, so it may inspect durable grants
+// inside the existing write lock without opening a second BEGIN IMMEDIATE.
+// Do not directly call SqliteControlAuthority.assertGrant here: that method
+// starts a separate write transaction and would contend with this lock.
+export type WorkspaceReceiptRepairAuthorization = (
+  request:WorkspaceReceiptRepairRequest, connection:DatabaseSync
+)=>void;
 const validId=(v:unknown,max=256):v is string=>
   typeof v==='string'&&v.length>0&&v.length<=max&&/^[a-zA-Z0-9_-]+$/.test(v);
 function reject(code:string,reason:string):never {throw new KernelError(code,reason);}
@@ -60,7 +67,7 @@ export class SqliteWorkspaceReceiptRepair {
       ||!validId(request.reviewerId)||!/^[a-f0-9]{64}$/.test(request.expectedEvidenceHash))
       reject('INVALID_REPAIR_REQUEST','Invalid receipt recovery identity or evidence');
     // Do not obtain permissions from the model, a journal row or a review note.
-    this.authorize(request);
+    this.authorize(request,this.db);
     this.db.exec('BEGIN IMMEDIATE');
     try{
       const owned=this.db.prepare(`
@@ -103,7 +110,7 @@ export class SqliteWorkspaceReceiptRepair {
           AND evidence_hash=? AND decision='evidence_noted'
       `).get(request.lease.sessionId,request.reviewId,request.reviewerId,report.evidenceHash);
       if(!note)reject('REPAIR_REVIEW_REQUIRED','Matching immutable evidence note required');
-      this.authorize(request); // Re-check current privilege inside write lock.
+      this.authorize(request,this.db); // Re-check current privilege inside write lock.
 
       const data:ToolResult={
         callId:request.callId,name:'workspace.patch',outcome:'succeeded',
