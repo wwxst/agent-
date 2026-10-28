@@ -1,4 +1,4 @@
-import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync} from 'node:fs';
+import {accessSync, constants, realpathSync, statSync, lstatSync, readlinkSync, readdirSync} from 'node:fs';
 import {isAbsolute, relative, dirname} from 'node:path';
 import {KernelError} from '../../contracts/src/index.js';
 import type {CgroupBudget} from './enforced.js';
@@ -72,6 +72,20 @@ export function buildBubblewrapLaunch(
   const app=realDirectory(compiledRoot);
   const dbDir=realDirectory(dirname(db));
   if(!disjoint(app,dbDir))return fail();
+  // The worker needs WAL writes but must never inherit unrelated secrets,
+  // backups, symlinks or sibling tenant data from its RW mount.
+  // This is a directory-admission check, NOT a revocation of DB write powers.
+  const databaseName=db.slice(dbDir.length+1);
+  if(!databaseName||databaseName.includes('/'))return fail();
+  const sqliteNames=new Set([
+    databaseName,databaseName+'-wal',databaseName+'-shm',databaseName+'-journal',
+  ]);
+  try{
+    for(const name of readdirSync(dbDir)){
+      if(!sqliteNames.has(name))return fail();
+      if(!lstatSync(dbDir+'/'+name).isFile())return fail();
+    }
+  }catch{return fail();}
   const runtime=sandbox.runtimeReadOnlyDirectories.map(realDirectory);
   if(sandbox.seccompPolicy!==undefined
     &&(sandbox.seccompPolicy!=='network-and-privilege-deny-v1'
