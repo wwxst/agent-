@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { existsSync, hardlinkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -166,7 +166,7 @@ test('WORKSPACE-OBS-03: a hardlink in writable src can mutate protected content 
   const f=tmp();
   try{
     const alias=join(f.writable,'protected-hardlink.txt');
-    hardlinkSync(f.protectedFile,alias);
+    linkSync(f.protectedFile,alias);
     const base=buildBubblewrapLaunch(sandbox(),f.db,compiledRoot,worker);
     const cut=base.argv.lastIndexOf('--');
     assert.ok(cut>=0);
