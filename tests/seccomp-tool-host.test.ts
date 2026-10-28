@@ -85,6 +85,53 @@ test('M3 seccomp: denies network and privilege syscalls but retains Node bootstr
     assert.equal(denied.has(runtimeSyscall),false,'Do not deny core Node / SQLite syscall '+runtimeSyscall);
   }
 });
+test('M3 seccomp: clone namespace flags fail closed, clone3 falls back, ordinary threads survive',()=>{
+  if(!supported())return;
+  const program=seccompBpfInstructions();
+  // Interpret only the cBPF opcodes this profile emits. This verifies branch
+  // offsets and argument inspection, not just the presence of a magic mask.
+  const evaluate=(syscall:number,cloneFlags=0,arch=0xc000003e):number=>{
+    let pc=0,acc=0;
+    for(let steps=0;steps<program.length+2;steps++){
+      const instruction=program[pc];
+      assert.ok(instruction, 'BPF program counter out of range');
+      if(instruction.op===0x20){
+        const offset=instruction.value;
+        assert.ok([0,4,16].includes(offset),'Unexpected seccomp_data load offset');
+        acc=offset===0?syscall:offset===4?arch:cloneFlags;
+        pc++;
+      }else if(instruction.op===0x15){
+        pc+=1+(acc===instruction.value?instruction.jt:instruction.jf);
+      }else if(instruction.op===0x45){
+        pc+=1+((acc&instruction.value)!==0?instruction.jt:instruction.jf);
+      }else if(instruction.op===0x06){
+        return instruction.value;
+      }else{
+        assert.fail('Unsupported BPF instruction');
+      }
+    }
+    return assert.fail('BPF did not terminate');
+  };
+  const EPERM=0x00050001,ENOSYS=0x00050026,ALLOW=0x7fff0000,KILL=0x80000000;
+  assert.equal(evaluate(56,0),ALLOW);
+  assert.equal(evaluate(56,0x00000100),ALLOW,'CLONE_VM must stay usable');
+  assert.equal(evaluate(56,0x00010000),ALLOW,'CLONE_THREAD must stay usable');
+  for(const flag of [
+    0x00000080, // CLONE_NEWTIME
+    0x00020000, // CLONE_NEWNS
+    0x02000000, // CLONE_NEWCGROUP
+    0x04000000, // CLONE_NEWUTS
+    0x08000000, // CLONE_NEWIPC
+    0x10000000, // CLONE_NEWUSER
+    0x20000000, // CLONE_NEWPID
+    0x40000000, // CLONE_NEWNET
+  ])assert.equal(evaluate(56,flag),EPERM,'Blocked clone namespace flag '+flag.toString(16));
+  assert.equal(evaluate(435),ENOSYS,'clone3 must allow libc fallback to safe clone');
+  assert.equal(evaluate(41),EPERM,'Original socket ban must remain active');
+  assert.equal(evaluate(56,0,0),KILL,'Non x86-64 ABI must remain forbidden');
+  assert.equal(evaluate(0x40000038),KILL,'x32 ABI must remain forbidden');
+});
+
 test('M3 seccomp: unsupported and forged seccomp profile fail closed before spawn',()=>{
   assert.throws(()=>buildHostSeccompBpf('invalid' as never),
     {code:'HOST_SECCOMP_UNAVAILABLE'});
