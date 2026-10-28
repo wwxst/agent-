@@ -131,3 +131,25 @@ test('WORKSPACE-COMMIT-04: revocation after rename yields unknown; replay cannot
     assert.equal(controller.inspect('commit-04').length,1);
   }finally{controller.close();leases.close();f.dispose();}
 });
+
+test('WORKSPACE-COMMIT-05: a lease lost after STARTED cannot cause an unauthorized rename',async()=>{
+  const f=fixture(),leases=new SqliteWriterLeaseStore(f.db);
+  let checks=0;
+  let current:WriterLease|null=null;
+  const ctl=new TrustedWorkspaceCommitController(f.db,f.root,()=>{
+    if(++checks===2)leases.release(current!);
+  });
+  try{
+    current=leases.acquire('commit-05','trusted',15000);assert.ok(current);
+    const call=await persistedCall(f.db,current,input());
+    assert.throws(()=>ctl.commit(call,new AbortController().signal),
+      {code:'TOOL_OUTCOME_UNKNOWN'});
+    assert.equal(readFileSync(f.file,'utf8'),source);
+    assert.equal(ctl.inspect('commit-05')[0]?.state,'started');
+    assert.equal(checks,2);
+    // A new fenced owner still cannot replay the same persisted claim.
+    const next=leases.acquire('commit-05','new-owner',15000);assert.ok(next);
+    assert.throws(()=>ctl.commit({...call,lease:next},new AbortController().signal),
+      {code:'TOOL_OUTCOME_UNKNOWN'});
+  }finally{ctl.close();leases.close();f.dispose();}
+});

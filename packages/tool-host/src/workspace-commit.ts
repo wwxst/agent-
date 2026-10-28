@@ -157,13 +157,16 @@ export class TrustedWorkspaceCommitController {
       const preRename=readVersion(file);
       if(!sameIdentity(initial.stamp,preRename.stamp)||preRename.text!==initial.text)
         fail('WORKSPACE_PATCH_STALE_BASE','Target changed before atomic rename');
-      this.authorize(call);
-      renameSync(temporary,file);
-      temporary=undefined;
-      syncDirectory(parent);
-      // Revocation after mutation must never produce a false success receipt.
-      this.authorize(call);
-      this.ledger.finish(call,'succeeded',preview.candidateSha256);
+      // Lease recheck + rename + Host receipt update are serialized under
+      // the same short SQLite BEGIN IMMEDIATE critical section.
+      this.ledger.finishSuccessWithEffect(call,preview.candidateSha256,()=>{
+        this.authorize(call);
+        renameSync(temporary!,file);
+        temporary=undefined;
+        syncDirectory(parent);
+        // A revocation after mutation keeps STARTED and yields UNKNOWN.
+        this.authorize(call);
+      });
       return {
         callId:call.callId,path:patch.path,baseSha256:preview.baseSha256,
         candidateSha256:preview.candidateSha256,
