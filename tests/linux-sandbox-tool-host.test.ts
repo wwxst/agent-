@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync,readlinkSync,readFileSync} from 'node:fs';
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,realpathSync,rmSync,writeFileSync,readlinkSync,readFileSync,symlinkSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -314,4 +314,42 @@ test('M3 hardening: stalled namespace launch has a bounded readiness deadline',a
     try{assert.equal(ledger.inspect('s').length,0);}
     finally{ledger.close();}
   }finally{host?.close();tmp.done();}
+});
+
+test('M3 SQLite mount: sibling credentials and backups are refused before worker spawn',()=>{
+  if(process.platform!=='linux')return;
+  const t=temp();
+  try{
+    const extra=join(dirname(t.path),'control-authority.json');
+    writeFileSync(extra,'secret-canary');
+    assert.throws(()=>buildBubblewrapLaunch({...config(),binaryPath:process.execPath},
+      t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+    assert.throws(()=>new ProcessToolHost(t.path,400,config()),{
+      code:'HOST_SANDBOX_UNAVAILABLE',
+    });
+  }finally{t.done();}
+});
+
+test('M3 SQLite mount: symlinked SQLite sidecars are refused even with allowed filenames',()=>{
+  if(process.platform!=='linux')return;
+  const t=temp();
+  try{
+    symlinkSync(t.path,t.path+'-wal');
+    assert.throws(()=>buildBubblewrapLaunch({...config(),binaryPath:process.execPath},
+      t.path,compiledRoot,worker),{code:'HOST_SANDBOX_UNAVAILABLE'});
+  }finally{t.done();}
+});
+
+test('M3 SQLite mount: only regular target SQLite and optional WAL/SHM files are admitted',()=>{
+  if(process.platform!=='linux')return;
+  const t=temp();
+  try{
+    writeFileSync(t.path+'-wal','');
+    writeFileSync(t.path+'-shm','');
+    const args=buildBubblewrapLaunch({...config(),binaryPath:process.execPath},
+      t.path,compiledRoot,worker).argv;
+    const at=args.indexOf('--bind');
+    assert.equal(args[at+1],dirname(t.path));
+    assert.equal(args[at+2],dirname(t.path));
+  }finally{t.done();}
 });
