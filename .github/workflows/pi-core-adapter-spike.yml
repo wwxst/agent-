@@ -1,0 +1,31 @@
+name: pi-core-adapter-spike
+
+on:
+  pull_request:
+    paths:
+      - "experiments/pi-core-adapter/**"
+      - "packages/**"
+      - "tests/**"
+      - "package.json"
+      - "tsconfig.json"
+      - ".github/workflows/pi-core-adapter-spike.yml"
+  workflow_dispatch:
+
+jobs:
+  deterministic-spike:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Install kernel dependencies
+        run: npm install
+      - name: Build and run kernel regression suite
+        run: npm test
+      - name: Install isolated Pi Core spike dependencies
+        run: npm install --prefix experiments/pi-core-adapter
+      - name: Run Pi Core adapter spike
+        run: npm test --prefix experiments/pi-core-adapter
