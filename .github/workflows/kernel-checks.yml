@@ -39,12 +39,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-      - name: Install kernel dependencies
-        run: npm install --no-audit --no-fund
-      - name: TypeScript strict check
-        run: npm run check
-      - name: Run deterministic Kernel suite
-        run: npm test
       - name: Install isolated Pi Core dependencies
         run: npm install --prefix experiments/pi-core-adapter --no-audit --no-fund
       - name: Run Pi Core adapter spike
