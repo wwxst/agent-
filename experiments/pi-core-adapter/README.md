@@ -1,6 +1,6 @@
 # Pi Agent Core adapter spike
 
-**Status: isolated research experiment; not adopted and not part of the production runtime. CI is being run for review; this is not approval to migrate the production loop.**
+**Status: isolated research experiment; not adopted and not part of the production runtime. The loop tests passed; the host-boundary extension is under CI review. This is not approval to migrate the production loop.**
 
 This spike tests the published `@earendil-works/pi-agent-core@1.4.0` package with a deterministic fake stream and in-memory tools. The corresponding source review is pinned separately to `earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`; package/source equivalence is not assumed without a provenance check.
 
@@ -9,7 +9,7 @@ This spike tests the published `@earendil-works/pi-agent-core@1.4.0` package wit
 - An awaited `message_end` listener can act as an intent-persistence barrier before tool execution starts.
 - Parallel tools may finish in reverse order while Pi's model-visible ToolResult messages remain in source-call order.
 - A truncated (`length`) assistant message containing ToolCalls does not execute those tools.
-- Failure to persist an intent must block the requested tool from executing.
+- Failure to persist an intent batch must block every requested tool from executing.
 
 All model responses and tools are deterministic and local. No credentials, network model requests, write tools, shell, or production Host are involved.
 
@@ -17,7 +17,7 @@ All model responses and tools are deterministic and local. No credentials, netwo
 
 - It does not prove that Pi Core can replace the current Kernel without an adapter.
 - It does not map Pi tool outcomes to the Kernel's durable Intent/Receipt, Lease/Fencing, authorization revocation, cancellation, or `OUTCOME_UNKNOWN` contracts.
-- It does not test process crash windows, external side effects, OS isolation, or product-level performance.
+- The adapter uses an in-memory fake journal and fake Host; it does not prove database transactions, process crash recovery, real external side effects, OS isolation, or product-level performance.
 - It does not authorize adding Pi Core as a production dependency.
 
 ## Run
