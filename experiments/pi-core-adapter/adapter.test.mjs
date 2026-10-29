@@ -46,7 +46,15 @@ function scriptedStream(responses, requests) {
   };
 }
 
-function createJournal({ failIntentBatch = false, failReceipt = false, failUnknown = false, onReceiptCommitted } = {}) {
+function createJournal({
+  failIntentBatch = false,
+  failReceipt = false,
+  failReceiptFor = [],
+  failUnknown = false,
+  onHasIntent,
+  onReceiptCommitted,
+  onUnknownMarked,
+} = {}) {
   const intentBatches = [];
   const receipts = [];
   const unknown = [];
@@ -59,16 +67,20 @@ function createJournal({ failIntentBatch = false, failReceipt = false, failUnkno
       intentBatches.push(structuredClone(batch));
     },
     async hasIntent(callId) {
+      await onHasIntent?.(callId);
       return intentBatches.some(batch => batch.calls.some(call => call.id === callId));
     },
     async commitReceipt(receipt) {
-      if (failReceipt) throw new Error("simulated Receipt persistence failure");
+      if (failReceipt || failReceiptFor.includes(receipt.callId)) {
+        throw new Error("simulated Receipt persistence failure");
+      }
       receipts.push(structuredClone(receipt));
       await onReceiptCommitted?.(receipt);
     },
     async markOutcomeUnknown(record) {
       if (failUnknown) throw new Error("simulated UNKNOWN marker failure");
       unknown.push(structuredClone(record));
+      await onUnknownMarked?.(record);
     },
     async hasUnresolved() {
       if (unknown.length > 0) return true;
@@ -188,6 +200,74 @@ test("adapter: Receipt persistence failure becomes OUTCOME_UNKNOWN and forbids r
   assert.equal(requests.length, 1, "Pi must not receive a follow-up request after UNKNOWN");
   await assert.rejects(adapter.run("retry effect", "turn-retry"), { code: "RECOVERY_REQUIRED" });
   assert.equal(requests.length, 1);
+});
+
+test("adapter: truncated ToolCalls create no Intent and remain non-executable", { timeout: 5000 }, async () => {
+  const journal = createJournal();
+  const host = {
+    started: [],
+    async execute(input) {
+      this.started.push(input.callId);
+      return { status: "success", output: "must-not-run", receipt: hostReceipt(input.callId, input.name) };
+    },
+  };
+  const requests = [];
+  const adapter = createKernelBoundaryAdapter({
+    model: MODEL,
+    streamFn: scriptedStream([
+      response([toolCall("truncated", "read")], "length"),
+      response([text("retry with complete arguments")], "stop"),
+    ], requests),
+    journal,
+    host,
+    toolNames: ["read"],
+  });
+
+  const outcome = await adapter.run("truncated call", "turn-truncated");
+  assert.equal(outcome.status, "COMPLETED");
+  assert.equal(journal.intentBatches.length, 0, "Pi rejects the truncated call before an executable Intent is created");
+  assert.deepEqual(host.started, []);
+  assert.equal(requests.length, 2);
+  assert.equal(await journal.hasUnresolved(), false);
+});
+
+test("adapter: a late parallel tool cannot start after another call becomes OUTCOME_UNKNOWN", { timeout: 5000 }, async () => {
+  let releaseLaterIntentCheck;
+  const unknownRecorded = new Promise(resolve => { releaseLaterIntentCheck = resolve; });
+  const journal = createJournal({
+    failReceiptFor: ["uncertain"],
+    onHasIntent: async callId => {
+      if (callId === "later") await unknownRecorded;
+    },
+    onUnknownMarked: async record => {
+      if (record.callId === "uncertain") releaseLaterIntentCheck();
+    },
+  });
+  const host = {
+    started: [],
+    async execute({ callId, name }) {
+      this.started.push(callId);
+      return { status: "success", output: "fake-host-output", receipt: hostReceipt(callId, name) };
+    },
+  };
+  const requests = [];
+  const adapter = createKernelBoundaryAdapter({
+    model: MODEL,
+    streamFn: scriptedStream([
+      response([toolCall("uncertain", "uncertain"), toolCall("later", "later")], "toolUse"),
+      response([text("must-not-continue")], "stop"),
+    ], requests),
+    journal,
+    host,
+    toolNames: ["uncertain", "later"],
+  });
+
+  const outcome = await adapter.run("parallel tools with one unknown", "turn-parallel-unknown");
+  assert.equal(outcome.status, "OUTCOME_UNKNOWN");
+  assert.deepEqual(outcome.callIds, ["uncertain"]);
+  assert.deepEqual(host.started, ["uncertain"], "late tool execution is blocked after the unresolved outcome");
+  assert.equal(requests.length, 1);
+  assert.equal(await journal.hasUnresolved(), true);
 });
 
 test("adapter: if UNKNOWN marker persistence also fails, the unresolved Intent still blocks replay", { timeout: 5000 }, async () => {
