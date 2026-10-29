@@ -29,13 +29,13 @@ test('M1 managed runner: acquire, heartbeat, complete and release across sequent
     const provider: ModelProvider = {
       id: 'slow-model',
       async *stream(_messages: readonly ContextMessage[], signal: AbortSignal) {
-        await delay(1300);
+        await delay(330);
         if (signal.aborted) throw signal.reason;
         yield finish('finished');
       },
     };
     const runner = new ManagedSessionRunner(tmp.path, provider, new ToolRegistry(), {
-      ttlMs: 1000, renewEveryMs: 100,
+      ttlMs: 180, renewEveryMs: 25,
     });
     assert.equal(await runner.createSession('managed'), 'managed');
     const first = await runner.runTurn('managed', 'first', 't1');
