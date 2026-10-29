@@ -1,0 +1,12 @@
+{
+  "name": "@agent-kernel/pi-core-adapter-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ./spike.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0"
+  }
+}
