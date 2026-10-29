@@ -23,7 +23,7 @@
 | 项目 | 实际值 |
 |---|---|
 | 仓库 PR | [PR #48](https://github.com/wwxst/agent-/pull/48) |
-| GitHub Actions | [Run #40841917262](https://github.com/wwxst/agent-/actions/runs/40841917262) |
+| GitHub Actions | [Final validation Run #40842575938](https://github.com/wwxst/agent-/actions/runs/40842575938); initial Pi run [#40841917262](https://github.com/wwxst/agent-/actions/runs/40841917262) |
 | Node | 22.19.0（Pi Core 声明要求 `>=22.19.0`） |
 | Pi Agent Core | npm 发布包 1.4.0 |
 | Pi AI | npm 发布包 1.4.0 |
@@ -33,6 +33,18 @@
 | 自研 Kernel 回归 | 同一次 PR CI 的 Node 22.16.0 与 Node 22 两个矩阵任务均通过类型检查和现有确定性测试 |
 
 CI 与测试文件：`experiments/pi-core-adapter/spike.test.mjs`。这些结果不替代后续故障注入、真实 Host、跨平台或真实工程任务测试。
+
+### CI 时序复核
+
+Run #40842275641 的一次复跑中，Node 22.16.0 的既有测试 `M1 managed runner: acquire, heartbeat, complete and release across sequential turns` 曾因 `LEASE_LOST` 失败；同一轮 Node 22 通过。该测试原先用 180ms Lease TTL、25ms heartbeat 与 330ms Provider 等待。新增的 Pi 实验 Job 当时还重复执行了整套 Kernel 测试，增加了并行 CI 负载。现有证据不能把失败完全归因于 CI 竞争，但原测试的时间余量明显过窄。
+
+处理措施：
+
+- 将该测试改为 1000ms TTL、100ms heartbeat、1300ms Provider 等待。等待仍长于 TTL，因此仍然覆盖 heartbeat 必须续租的路径，但对短暂调度停顿有更大余量。
+- 移除 Pi 专项 Job 中重复的 Kernel 全套测试；Kernel 回归仍由原来的 Node 22.16.0 / Node 22 矩阵负责。
+- 在 [Run #40842538682](https://github.com/wwxst/agent-/actions/runs/40842538682) 中，Kernel 两个矩阵任务和 Pi 四项测试均通过；随后在 [Run #40842575938](https://github.com/wwxst/agent-/actions/runs/40842575938) 中，两个 Kernel 矩阵任务与 Pi 专项任务再次全部通过。
+
+这是**测试时间窗口的稳健性修正**，没有修改生产 Lease 的过期、续租或 fencing 语义。以后仍需继续观察多次运行的稳定性，不能把单次通过当作彻底消除竞态的证明。
 
 ## 2. 动态观察
 
