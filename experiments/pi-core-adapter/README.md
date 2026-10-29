@@ -1,6 +1,6 @@
 # Pi Agent Core adapter spike
 
-**Status: isolated research experiment; not adopted and not part of the production runtime. The loop tests passed; the host-boundary extension is under CI review. This is not approval to migrate the production loop.**
+**Status: isolated research experiment; not adopted and not part of the production runtime. Loop + Host-boundary tests passed (11/11); real EventStore/ToolHost integration is still unverified. This is not approval to migrate the production loop.**
 
 This spike tests the published `@earendil-works/pi-agent-core@1.4.0` package with a deterministic fake stream and in-memory tools. The corresponding source review is pinned separately to `earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`; package/source equivalence is not assumed without a provenance check.
 
