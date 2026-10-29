@@ -37,6 +37,7 @@
 | **[26 架构重评第一轮：先验证参考方案，再决定自研方案](26-架构重评第一轮-2026-10-29.md)** | 核对当前 Kernel 与四套参考设计；明确暂停扩展 Workspace 恢复链，优先验证 Loop、StepContext、并发结果顺序与存储取舍 |
 | **[27 第二轮重评：工具结果顺序合同与 Adopt-vs-Build 可行性](27-工具结果顺序与Adopt-vs-Build-2026-10-29.md)** | 对照 Pi/Codex/DeepSeek 的并发结果语义；提出“收据事实时序与模型上下文顺序分离”，初判 Pi Core 为首个薄适配候选（尚未运行） |
 | **[28 Pi Agent Core 适配边界审查](28-Pi-Agent-Core适配边界审查-2026-10-29.md)** | 证明低层异步 EventSink 可作为批次 Intent 屏障；标出 Promise.all 提前拒绝、截断语义、Receipt 与 Lease 等必须通过的适配门槛 |
+| **[29 Codex StepContext 对照：应借鉴快照原则，不照搬整套结构](29-Codex-StepContext与Kernel快照对照-2026-10-29.md)** | 对照模型设置、工具计划、权限与环境快照；保留当前 M0 快照原则，列出写工具开放前必须验证的版本竞态 |
 | [ADR 0005 首版自主内核技术基线](../../adr/0005-首版自主内核技术基线与取舍.md) | 推荐技术选择（Proposed，尚待批准） |
 
 原 Claude Code 专题分析及 2.1.88 Source Map 研究还在 [旧版与专题目录](../claude-code/README.md)；本轮新版文件研究以 **01** 为准。
