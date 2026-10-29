@@ -25,6 +25,7 @@ export function createKernelBoundaryAdapter({
   let agent;
   let activeTurnId;
   let blocked = false;
+  let running = false;
   let terminalOutcome;
 
   const markUnknown = async (callId, reason, error) => {
@@ -190,50 +191,60 @@ export function createKernelBoundaryAdapter({
   return {
     agent,
     async run(prompt, turnId) {
-      let unresolvedAtStart = false;
-      try {
-        unresolvedAtStart = await journal.hasUnresolved();
-      } catch {
-        blocked = true;
-        const error = new Error("RECOVERY_REQUIRED: journal state could not be verified");
-        error.code = "RECOVERY_REQUIRED";
+      if (running) {
+        const error = new Error("TURN_ALREADY_RUNNING: this adapter instance serializes turns");
+        error.code = "TURN_ALREADY_RUNNING";
         throw error;
       }
-      if (blocked || unresolvedAtStart) {
-        const error = new Error("RECOVERY_REQUIRED: unresolved execution state requires reconciliation");
-        error.code = "RECOVERY_REQUIRED";
-        throw error;
-      }
-      activeTurnId = turnId;
-      terminalOutcome = undefined;
+      running = true;
       try {
-        await agent.prompt(prompt);
-      } catch (error) {
-        blocked = true;
-        return {
-          status: "FAILED",
-          turnId,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-      if (terminalOutcome) return terminalOutcome;
+        let unresolvedAtStart = false;
+        try {
+          unresolvedAtStart = await journal.hasUnresolved();
+        } catch {
+          blocked = true;
+          const error = new Error("RECOVERY_REQUIRED: journal state could not be verified");
+          error.code = "RECOVERY_REQUIRED";
+          throw error;
+        }
+        if (blocked || unresolvedAtStart) {
+          const error = new Error("RECOVERY_REQUIRED: unresolved execution state requires reconciliation");
+          error.code = "RECOVERY_REQUIRED";
+          throw error;
+        }
+        activeTurnId = turnId;
+        terminalOutcome = undefined;
+        try {
+          await agent.prompt(prompt);
+        } catch (error) {
+          blocked = true;
+          return {
+            status: "FAILED",
+            turnId,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+        if (terminalOutcome) return terminalOutcome;
 
-      let unresolvedAfterRun = true;
-      try {
-        unresolvedAfterRun = await journal.hasUnresolved();
-      } catch {
-        blocked = true;
-        return { status: "RECOVERY_REQUIRED", turnId, error: "Journal state could not be verified after the run" };
+        let unresolvedAfterRun = true;
+        try {
+          unresolvedAfterRun = await journal.hasUnresolved();
+        } catch {
+          blocked = true;
+          return { status: "RECOVERY_REQUIRED", turnId, error: "Journal state could not be verified after the run" };
+        }
+        if (unresolvedAfterRun) {
+          blocked = true;
+          return { status: "RECOVERY_REQUIRED", turnId, error: "Unresolved Intent/Receipt state remains after the Pi loop" };
+        }
+        if (agent.state.errorMessage) {
+          blocked = true;
+          return { status: "FAILED", turnId, error: agent.state.errorMessage };
+        }
+        return { status: "COMPLETED", turnId };
+      } finally {
+        running = false;
       }
-      if (unresolvedAfterRun) {
-        blocked = true;
-        return { status: "RECOVERY_REQUIRED", turnId, error: "Unresolved Intent/Receipt state remains after the Pi loop" };
-      }
-      if (agent.state.errorMessage) {
-        blocked = true;
-        return { status: "FAILED", turnId, error: agent.state.errorMessage };
-      }
-      return { status: "COMPLETED", turnId };
     },
   };
 }
