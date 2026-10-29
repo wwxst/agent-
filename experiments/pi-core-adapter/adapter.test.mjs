@@ -55,16 +55,29 @@ function createJournal({
   onReceiptCommitted,
   onUnknownMarked,
 } = {}) {
+  const assistantMessages = [];
   const intentBatches = [];
   const receipts = [];
   const unknown = [];
   return {
+    assistantMessages,
     intentBatches,
     receipts,
     unknown,
-    async commitIntentBatch(batch) {
-      if (failIntentBatch) throw new Error("simulated atomic Intent batch failure");
-      intentBatches.push(structuredClone(batch));
+    async commitAssistantMessage(record) {
+      if (failIntentBatch && record.intents.length > 0) {
+        throw new Error("simulated atomic Assistant+Intent batch failure");
+      }
+      // The experiment treats this method as one transaction: either both the
+      // Assistant message and all executable Intents become durable, or none do.
+      assistantMessages.push(structuredClone({
+        turnId: record.turnId,
+        message: record.assistantMessage,
+        intents: record.intents,
+      }));
+      if (record.intents.length > 0) {
+        intentBatches.push({ turnId: record.turnId, calls: structuredClone(record.intents) });
+      }
     },
     async hasIntent(callId) {
       await onHasIntent?.(callId);
@@ -127,9 +140,15 @@ test("adapter: commits one complete Intent batch before parallel tools and prese
 
   const outcome = await adapter.run("run both tools", "turn-atomic");
   assert.equal(outcome.status, "COMPLETED");
-  assert.equal(journal.intentBatches.length, 1, "the batch is committed in one journal operation");
+  assert.equal(journal.assistantMessages.length, 2, "both tool-call and final Assistant messages are persisted");
+  assert.equal(journal.intentBatches.length, 1, "the executable Intent batch is committed in one journal operation");
   assert.equal(journal.intentBatches[0].turnId, "turn-atomic");
   assert.deepEqual(journal.intentBatches[0].calls.map(call => call.id), ["slow", "fast"]);
+  assert.deepEqual(
+    journal.assistantMessages[0].intents.map(call => call.id),
+    ["slow", "fast"],
+    "the Assistant message and complete Intent batch share one commit",
+  );
   assert.deepEqual(host.completed, ["fast", "slow"], "trusted Host completion order is retained");
   assert.deepEqual(journal.receipts.map(receipt => receipt.callId), ["fast", "slow"]);
   assert.deepEqual(
@@ -225,7 +244,9 @@ test("adapter: truncated ToolCalls create no Intent and remain non-executable", 
 
   const outcome = await adapter.run("truncated call", "turn-truncated");
   assert.equal(outcome.status, "COMPLETED");
+  assert.equal(journal.assistantMessages.length, 2, "the truncated Assistant response is still journaled");
   assert.equal(journal.intentBatches.length, 0, "Pi rejects the truncated call before an executable Intent is created");
+  assert.deepEqual(journal.assistantMessages[0].intents, []);
   assert.deepEqual(host.started, []);
   assert.equal(requests.length, 2);
   assert.equal(await journal.hasUnresolved(), false);
