@@ -52,6 +52,7 @@ function createJournal({
   failReceiptFor = [],
   failUnknown = false,
   onHasIntent,
+  onAssistantMessageCommitted,
   onReceiptCommitted,
   onUnknownMarked,
 } = {}) {
@@ -78,6 +79,7 @@ function createJournal({
       if (record.intents.length > 0) {
         intentBatches.push({ turnId: record.turnId, calls: structuredClone(record.intents) });
       }
+      await onAssistantMessageCommitted?.(record);
     },
     async hasIntent(callId) {
       await onHasIntent?.(callId);
@@ -157,6 +159,45 @@ test("adapter: commits one complete Intent batch before parallel tools and prese
     "Pi's model transcript remains in original ToolCall order",
   );
   assert.equal(await journal.hasUnresolved(), false);
+});
+
+test("adapter: serializes turns before any asynchronous journal check can race turn identity", { timeout: 5000 }, async () => {
+  let releaseIntentCommit;
+  let announceIntentCommit;
+  const commitGate = new Promise(resolve => { releaseIntentCommit = resolve; });
+  const commitStarted = new Promise(resolve => { announceIntentCommit = resolve; });
+  const journal = createJournal({
+    onAssistantMessageCommitted: async record => {
+      if (record.intents.length > 0) {
+        announceIntentCommit();
+        await commitGate;
+      }
+    },
+  });
+  const host = {
+    async execute({ callId, name }) {
+      return { status: "success", output: "ok", receipt: hostReceipt(callId, name) };
+    },
+  };
+  const requests = [];
+  const adapter = createKernelBoundaryAdapter({
+    model: MODEL,
+    streamFn: scriptedStream([
+      response([toolCall("read-1", "read")], "toolUse"),
+      response([text("done")], "stop"),
+    ], requests),
+    journal,
+    host,
+    toolNames: ["read"],
+  });
+
+  const firstRun = adapter.run("first turn", "turn-1");
+  await commitStarted;
+  await assert.rejects(adapter.run("racing second turn", "turn-2"), { code: "TURN_ALREADY_RUNNING" });
+  releaseIntentCommit();
+  assert.equal((await firstRun).status, "COMPLETED");
+  assert.equal(requests.length, 2, "the rejected concurrent call never reaches the model");
+  assert.equal(journal.intentBatches.length, 1);
 });
 
 test("adapter: failed atomic Intent commit blocks every tool and blocks reuse of stale Agent state", { timeout: 5000 }, async () => {
