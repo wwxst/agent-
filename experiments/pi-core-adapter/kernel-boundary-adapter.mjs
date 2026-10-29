@@ -1,11 +1,11 @@
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 
-const textResult = (text, details, isError = false) => ({
+const textResult = (text, details, isError = false, terminate = false) => ({
   content: [{ type: "text", text }],
   details,
   isError,
-  ...(isError ? { terminate: true } : {}),
+  ...(terminate ? { terminate: true } : {}),
 });
 
 /**
@@ -46,7 +46,7 @@ export function createKernelBoundaryAdapter({
     return textResult("Execution outcome is unknown; stop and reconcile before retrying.", {
       callId,
       outcome: "unknown",
-    }, true);
+    }, true, true);
   };
 
   const tools = toolNames.map(name => ({
@@ -67,7 +67,7 @@ export function createKernelBoundaryAdapter({
         return textResult("No committed Intent exists; execution is blocked.", {
           callId: toolCallId,
           outcome: "intent-not-committed",
-        }, true);
+        }, true, true);
       }
 
       let hostResult;
