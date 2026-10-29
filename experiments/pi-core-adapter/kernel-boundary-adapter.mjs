@@ -156,27 +156,29 @@ export function createKernelBoundaryAdapter({
   });
 
   agent.subscribe(async event => {
-    if (event.type !== "message_end" || event.message.role !== "assistant") return;
+    if (event.type !== "message_end" || event.message.role !== "assistant" || blocked) return;
     const calls = event.message.content.filter(item => item.type === "toolCall");
-    if (calls.length === 0) return;
-    // Pi will not execute ToolCalls from these terminal/truncated responses.
-    // Do not create durable Intents for calls that the loop itself rejects.
-    if (["length", "error", "aborted"].includes(event.message.stopReason)) return;
+    // Persist every final Assistant message. Only create executable Intents for
+    // calls the loop will actually execute; Pi rejects ToolCalls from length,
+    // error, and aborted responses before entering the tool executor.
+    const rejectedStopReason = ["length", "error", "aborted"].includes(event.message.stopReason);
+    const intents = rejectedStopReason ? [] : calls.map(call => ({
+      id: call.id,
+      name: call.name,
+      arguments: structuredClone(call.arguments),
+    }));
 
-    // One awaited operation commits the whole assistant batch before Pi can
-    // emit tool_execution_start. Never persist one Intent at a time here.
     try {
-      await journal.commitIntentBatch({
+      // This single transaction must persist the Assistant message and the
+      // complete Intent batch together, before Pi can emit tool_execution_start.
+      await journal.commitAssistantMessage({
         turnId: activeTurnId,
-        calls: calls.map(call => ({
-          id: call.id,
-          name: call.name,
-          arguments: structuredClone(call.arguments),
-        })),
+        assistantMessage: structuredClone(event.message),
+        intents,
       });
     } catch (error) {
       terminalOutcome = {
-        status: "FAILED_INTENT_PERSISTENCE",
+        status: intents.length > 0 ? "FAILED_INTENT_PERSISTENCE" : "FAILED_ASSISTANT_PERSISTENCE",
         turnId: activeTurnId,
         error: error instanceof Error ? error.message : String(error),
       };
