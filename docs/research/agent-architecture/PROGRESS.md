@@ -33,7 +33,7 @@
 | 子系统 | 状态 | 下一步 |
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
-| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook 与 remote Host 路由/reconcile；仍需核验底层 write backend、MCP Host 分支和完整错误状态机 |
+| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告，仍需核验 MCP Host 分支和完整错误状态机 |
 | Claude CLI 权限、并发和失败恢复 | **部分核验** | 已确认 class vs 并发合同、wG/AYr 权限路径、remote Host 的 call-state/reconcile/delivery_unknown 路径；下一步核验 backend 写入语义、本地工具失败语义及全分支副作用边界 |
 | Claude CLI 上下文压缩与 Subagent | **初步定位，未完成** | 已确认每轮前 autocompact 与 prompt-too-long reactive 路径；subagent 父子状态和完整压缩转移待查 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
@@ -90,4 +90,4 @@
 
 本轮完成了**Claude CLI 执行链、transcript 写入与 remote Host 恢复的静态源码复核**，详见报告 33–35。已确认 transcript 有独立异步写队列、显式 drain/flush 与 exit flush；remote Host 路径存在 call-state、reconnect reconcile 和 delivery_unknown/gaveUp/answeredLate 处理。仍未确认底层 backend 的 fsync/crash guarantee，也未证明 runtime ledger 跨进程持久化。
 
-**当前续接点：** 先追踪 `appendToFile → pue` 的底层写入与非正常崩溃路径，再核验本地工具失败语义和 MCP Host 路由，之后补齐 stream retry/fallback/abort/tombstone 状态机。当前所有结论仍为静态源码证据；未运行 CLI，未动态验证实际分支。
+**当前续接点：** 继续核验 Storage V5 `r.append` 的持久化保证与非正常进程崩溃时未完成写队列的处理；随后核验本地工具失败语义和 MCP Host 路由，之后补齐 stream retry/fallback/abort/tombstone 状态机。当前所有结论仍为静态源码证据；未运行 CLI，未动态验证实际分支。
