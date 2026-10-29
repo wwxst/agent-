@@ -41,6 +41,54 @@ test('M0: tool results feed next provider request, by call id', async () => {
   assert.equal((p.requests[1]?.at(-1) as {result:{callId:string}}).result.callId,'c1');
 });
 
+test('T02: durable receipts follow completion while provider context and replay follow call order', async () => {
+  const base = new MemoryEventStore();
+  let allowSlowToFinish!: () => void;
+  const fastReceiptCommitted = new Promise<void>(resolve => { allowSlowToFinish = resolve; });
+  const store = {
+    append: async (id: string, expectedSeq: number, drafts: readonly import('../packages/contracts/src/index.js').EventDraft[]) => {
+      const committed = await base.append(id, expectedSeq, drafts);
+      if (drafts.some(d => d.type === 'tool.result' && (d.data as { callId: string }).callId === 'fast')) {
+        allowSlowToFinish();
+      }
+      return committed;
+    },
+    read: (id: string, after?: number) => base.read(id, after),
+  };
+  const provider = new FakeProvider([
+    [finish('run', [call('slow', 'slow'), call('fast', 'fast')])],
+    [finish('done')],
+  ]);
+  const registry = new ToolRegistry();
+  registry.register(mkRead('slow', async () => { await fastReceiptCommitted; return 'slow-result'; }));
+  registry.register(mkRead('fast', async () => 'fast-result'));
+  const kernel = new AgentKernel(store, provider, registry);
+  const session = await kernel.createSession();
+
+  assert.equal((await kernel.runTurn(session, 'run')).status, 'completed');
+  const events = await kernel.readEvents(session);
+  assert.deepEqual(
+    events.filter(e => e.type === 'tool.result').map(e => (e.data as { callId: string }).callId),
+    ['fast', 'slow'],
+    'durable result events retain observed completion order',
+  );
+  assert.deepEqual(
+    (provider.requests[1] ?? []).flatMap(message => message.role === 'tool' ? [message.result.callId] : []),
+    ['slow', 'fast'],
+    'the next model request uses original ToolCall order',
+  );
+
+  const replayProvider = new FakeProvider([[finish('continued')]]);
+  const reopenedKernel = new AgentKernel(store, replayProvider, registry);
+  await reopenedKernel.openSession(session);
+  assert.equal((await reopenedKernel.runTurn(session, 'continue')).status, 'completed');
+  assert.deepEqual(
+    (replayProvider.requests[0] ?? []).flatMap(message => message.role === 'tool' ? [message.result.callId] : []),
+    ['slow', 'fast'],
+    'reopened sessions rebuild the same deterministic tool-result projection',
+  );
+});
+
 test('M0: unknown, invalid and denied tools never execute', async()=>{
   let called=0;
   const registry=new ToolRegistry();
