@@ -103,6 +103,16 @@ export function createKernelBoundaryAdapter({
           outcome: "intent-not-committed",
         }, true, true);
       }
+      // The await above is a race boundary: another parallel tool may have
+      // failed closed while this call was checking the journal. Recheck before
+      // crossing into the trusted Host.
+      if (blocked) {
+        agent?.abort();
+        return textResult("Execution is blocked by an earlier unresolved outcome.", {
+          callId: toolCallId,
+          outcome: "blocked",
+        }, true, true);
+      }
 
       let hostResult;
       try {
