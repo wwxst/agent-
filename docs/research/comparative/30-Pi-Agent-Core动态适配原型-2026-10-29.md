@@ -23,7 +23,7 @@
 | 项目 | 实际值 |
 |---|---|
 | 仓库 PR | [PR #48](https://github.com/wwxst/agent-/pull/48) |
-| GitHub Actions | [Final validation Run #40842575938](https://github.com/wwxst/agent-/actions/runs/40842575938); initial Pi run [#40841917262](https://github.com/wwxst/agent-/actions/runs/40841917262) |
+| GitHub Actions | [Final validation Run #40844898896](https://github.com/wwxst/agent-/actions/runs/40844898896); initial Pi run [#40841917262](https://github.com/wwxst/agent-/actions/runs/40841917262) |
 | Node | 22.19.0（Pi Core 声明要求 `>=22.19.0`） |
 | Pi Agent Core | npm 发布包 1.4.0 |
 | Pi AI | npm 发布包 1.4.0 |
@@ -36,16 +36,17 @@ CI 与测试文件：`experiments/pi-core-adapter/spike.test.mjs`。这些结果
 
 ### CI 时序复核
 
-Run #40842275641 的一次复跑中，Node 22.16.0 的既有测试 `M1 managed runner: acquire, heartbeat, complete and release across sequential turns` 曾因 `LEASE_LOST` 失败；同一轮 Node 22 通过。该测试原先用 180ms Lease TTL、25ms heartbeat 与 330ms Provider 等待。新增的 Pi 实验 Job 当时还重复执行了整套 Kernel 测试，增加了并行 CI 负载。现有证据不能把失败完全归因于 CI 竞争，但原测试的时间余量明显过窄。
+Run #40842275641 的一次复跑中，Node 22.16.0 的既有测试 `M1 managed runner: acquire, heartbeat, complete and release across sequential turns` 曾因 `LEASE_LOST` 失败；同一轮 Node 22 通过。该测试原先使用 180ms Lease TTL、25ms heartbeat 与 330ms Provider 等待。当时新增的 Pi 实验 Job 还重复执行了整套 Kernel 测试，增加了并行 CI 负载。现有证据不能把失败完全归因于 CI 竞争。
 
-处理措施：
+处理措施与复核：
 
-- 将该测试改为 1000ms TTL、100ms heartbeat、1300ms Provider 等待。等待仍长于 TTL，因此仍然覆盖 heartbeat 必须续租的路径，但对短暂调度停顿有更大余量。
-- 移除 Pi 专项 Job 中重复的 Kernel 全套测试；Kernel 回归仍由原来的 Node 22.16.0 / Node 22 矩阵负责。
-- 在 [Run #40842538682](https://github.com/wwxst/agent-/actions/runs/40842538682) 中，Kernel 两个矩阵任务和 Pi 四项测试均通过；随后在 [Run #40842575938](https://github.com/wwxst/agent-/actions/runs/40842575938) 中，两个 Kernel 矩阵任务与 Pi 专项任务再次全部通过。
+- 移除 Pi 专项 Job 中重复的 Kernel 全套测试；Kernel 回归继续由原来的 Node 22.16.0 / Node 22 矩阵负责。
+- 曾尝试将 TTL 和 Provider 等待一起扩大，但 Node 22.16.0 的一轮测试进程长时间未完成（Run #40844550067），因此撤销了这项时间参数改动；没有把一个未验证的时间调整保留在最终分支。
+- 在恢复原测试参数、同时移除重复 Kernel Job 后，[Run #40844898896](https://github.com/wwxst/agent-/actions/runs/40844898896) 的 Node 22.16.0、Node 22 和 Pi 专项三个任务全部通过。Pi 专项当时为 11 项测试全部通过。
 
-这是**测试时间窗口的稳健性修正**，没有修改生产 Lease 的过期、续租或 fencing 语义。以后仍需继续观察多次运行的稳定性，不能把单次通过当作彻底消除竞态的证明。
+因此，目前最有根据的解释是额外并行的全套 Kernel 测试放大了原测试的时序敏感性，但还不能断言已经彻底排除 Lease 测试的竞态。下一次单独改进应优先采用可控时钟/可注入调度器的确定性测试，而不是继续扩大真实墙钟延迟。
 
+这次处理没有修改生产 Lease 的过期、续租或 fencing 语义。
 ## 2. 动态观察
 
 ### P30-1 · 异步事件屏障
