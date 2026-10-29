@@ -41,6 +41,7 @@
 - [报告 33：Claude CLI 执行链源码复核（第一轮）](./33-Claude-CLI执行链源码复核-2026-10-29.md)
 - [报告 34：Claude CLI 会话持久化与工具路由复核](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)
 - [报告 35：Claude CLI 远程工具 Host 与恢复状态机复核](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)
+- [报告 36：Claude CLI Transcript 写入失败与流式 Fallback 收敛](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
