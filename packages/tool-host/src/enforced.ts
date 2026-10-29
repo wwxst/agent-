@@ -183,6 +183,53 @@ export function assertDedicatedCgroupReady(
   return {...own,relativePath:leaf};
 }
 
+/**
+ * Re-attest an already-started, kernel-identified Worker against its own
+ * dedicated cgroup. This is NOT an admission check for an arbitrary PID:
+ * ProcessToolHost first checks trusted process ancestry/starttime/namespaces.
+ *
+ * Tests may provide synthetic proc/cgroup roots. Production callers MUST use
+ * the literal default Linux procfs and cgroup2fs mounts.
+ */
+export function assertDedicatedWorkerCgroup(
+  workerPid:number,expectedLeaf:string,budget:CgroupBudget,
+  mountRoot:string='/sys/fs/cgroup',procRoot:string='/proc',
+):AttestedCgroupLimits{
+  validateBudget(budget);
+  if(!Number.isSafeInteger(workerPid)||workerPid<1)
+    return unavailable('Verified Worker PID unavailable for cgroup validation');
+  const leaf=readUnifiedCgroupPath('0::'+expectedLeaf);
+  if(leaf==='/')return unavailable('Dedicated Worker cannot share root cgroup');
+  let current:string;
+  try{
+    current=readUnifiedCgroupPath(readFileSync(
+      resolve(procRoot,String(workerPid),'cgroup'),'utf8'));
+  }catch(error){
+    if(error instanceof KernelError)throw error;
+    return unavailable('Cannot read verified Worker cgroup membership');
+  }
+  if(current!==leaf)
+    denied('Verified Worker is not in its assigned dedicated cgroup');
+  let root:string,leafDir:string;
+  try{
+    root=realpathSync(mountRoot);
+    if(!statSync(root).isDirectory())return unavailable('Cgroup mount unavailable');
+    // Only test fixtures can opt out of the production cgroup2fs check.
+    if(mountRoot==='/sys/fs/cgroup' && statfsSync(root).type!==0x63677270)
+      return unavailable('Verified cgroup2fs required');
+    leafDir=realpathSync(resolve(root,'.'+leaf));
+    if(!within(root,leafDir)||!statSync(leafDir).isDirectory())
+      return unavailable('Verified Worker cgroup escaped mount');
+  }catch{
+    return unavailable('Verified Worker dedicated cgroup is inaccessible');
+  }
+  // Re-read the leaf's OWN limits: inherited ancestor quotas alone cannot
+  // satisfy a dedicated Worker budget after Supervisor configuration drift.
+  const direct=inspectCgroupV2From('0::/',leafDir);
+  assertInheritedCgroupBudget(direct,budget);
+  return {...direct,relativePath:leaf};
+}
+
 export interface DedicatedToolHostOptions extends EnforcedToolHostOptions {
   /** Pre-created EMPTY leaf strictly below this process's cgroup. */
   readonly dedicatedCgroupRelativePath:string;
@@ -220,8 +267,11 @@ export async function startDedicatedToolHost(options:DedicatedToolHostOptions):P
     if(!pid || !Number.isSafeInteger(pid))return unavailable('Host launcher PID unavailable');
     const current=readUnifiedCgroupPath(readFileSync('/proc/'+pid+'/cgroup','utf8'));
     if(current!==limits.relativePath)return unavailable('Dedicated launcher did not join the correct cgroup');
-    const leafDir=resolve(root,'.'+limits.relativePath);
-    assertInheritedCgroupBudget(inspectCgroupV2From('0::/',leafDir),options.requiredBudget);
+    const workerPid=host.verifiedWorkerPid;
+    if(!workerPid)return unavailable('Verified Worker PID unavailable');
+    // The launcher and the actual isolated Worker must BOTH be in this leaf;
+    // a READY packet or a bounded launcher alone is not sufficient.
+    assertDedicatedWorkerCgroup(workerPid,limits.relativePath,options.requiredBudget);
     return {host,limits};
   }catch(error){host.close();throw error;}
 }

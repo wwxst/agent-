@@ -3,7 +3,7 @@ import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readFileSync,realpathSync,statfsSync,writeFileSync,closeSync } from 'node:fs';
 import { resolve,relative,isAbsolute } from 'node:path';
-import { readUnifiedCgroupPath,assertDedicatedCgroupReady } from './enforced.js';
+import { readUnifiedCgroupPath,assertDedicatedCgroupReady,assertDedicatedWorkerCgroup,type CgroupBudget } from './enforced.js';
 import { attestSandboxWorker,assertWorkerIdentity,assertWorkerSeccompInstalled,type KernelHostIdentity } from './host-attestation.js';
 import { buildBubblewrapLaunch, type LinuxBubblewrapSandbox } from './sandbox.js';
 import {openHostSeccompFilter} from './seccomp.js';
@@ -43,6 +43,7 @@ export class ProcessToolHost {
   private readonly expectedNodePath:string;
   private readonly expectedDatabasePath:string;
   private readonly dedicatedCgroupLeaf?:string;
+  private readonly dedicatedCgroupBudget?:CgroupBudget;
   private cleanupError?:KernelError;
   private readonly ready: Promise<void>;
   private signalReady!: () => void;
@@ -71,6 +72,8 @@ export class ProcessToolHost {
         throw new KernelError('HOST_CGROUP_UNAVAILABLE','Dedicated Host must have a strict descendant cgroup');
       assertDedicatedCgroupReady(parent,leaf,sandbox.dedicatedCgroup.budget);
       this.dedicatedCgroupLeaf=leaf;
+      // Snapshot trusted budget; do not re-read caller-owned mutable config.
+      this.dedicatedCgroupBudget={...sandbox.dedicatedCgroup.budget};
     }
     if (!databasePath.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60_000) {
       throw new KernelError('HOST_INVALID_OPTIONS', 'Invalid Host database path or timeout');
@@ -144,6 +147,9 @@ export class ProcessToolHost {
             });
             if(sandbox?.seccompPolicy)
               assertWorkerSeccompInstalled(this.workerIdentity.pid);
+            if(this.dedicatedCgroupLeaf && this.dedicatedCgroupBudget)
+              assertDedicatedWorkerCgroup(this.workerIdentity.pid,
+                this.dedicatedCgroupLeaf,this.dedicatedCgroupBudget);
           }catch{
             this.close();return;
           }
@@ -245,8 +251,13 @@ export class ProcessToolHost {
         assertWorkerIdentity(this.workerIdentity);
         if(this.seccompRequired)
           assertWorkerSeccompInstalled(this.workerIdentity.pid);
-      }catch{
+        if(this.dedicatedCgroupLeaf && this.dedicatedCgroupBudget)
+          assertDedicatedWorkerCgroup(this.workerIdentity.pid,
+            this.dedicatedCgroupLeaf,this.dedicatedCgroupBudget);
+      }catch(error){
         this.close();
+        if(error instanceof KernelError && error.code.startsWith('HOST_CGROUP'))
+          throw error;
         throw new KernelError('HOST_IDENTITY_UNVERIFIED','Worker kernel identity changed');
       }
     }
