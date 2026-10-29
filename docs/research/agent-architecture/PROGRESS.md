@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-29 21:00（Asia/Kuala_Lumpur，本轮）  
+> 最后更新：2026-10-29（本轮研究）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -28,6 +28,7 @@
 | 报告 34 | session.append hook、transcript writer/flush、local/remote tool route | 已追 queue drain 与 exit flush；未证明底层 fsync/crash guarantee |
 | 报告 35 | remote ToolHost 路由、权限 gate、call state、reconnect reconcile 与 delivery_unknown | 静态源码；未运行真实 Host；ledger 跨进程持久化保证未知 |
 | 报告 36 | transcript 写入失败的 Promise/健康状态语义；stream fallback/refusal/model fallback 的消息撤回与工具停止机制 | 静态源码；Storage V5 backend 保证、错误恢复全路径及已产生副作用尚未动态验证 |
+| 报告 37 | Storage V5 reader 的 read→readRecords fallback、torn tail/无效 JSONL 容错；writerHealth 降级/恢复和 session UUID dedupe 依赖 | 直接复核发布版 JS；尚无 V5 backend 物理持久化或崩溃注入证据 |
 
 ## 4. 研究覆盖率
 
@@ -48,16 +49,18 @@
 
 ### A. Claude CLI 的完整执行链（进行中）
 
-入口与 Loop 见 [报告 33](./33-Claude-CLI执行链源码复核-2026-10-29.md)，transcript 与路由见 [报告 34](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)，remote Host 见 [报告 35](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)，writer 失败语义、stream fallback/tombstone/abort 见 [报告 36](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)。均基于 CLI 2.1.304 发布版 JS 静态检查。
+历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)。
 
-下一轮按以下顺序继续：
+报告 37 的新增确认：writerHealth `qb` 记录连续失败及分类阈值、`nRt` 在后续成功 append 后清除对应文件降级；reader `see` 能把某些 V5 read 错误转为 `PRt/readRecords` 分页尝试；支持 torn-tail 标记和跳过部分不能解析的 JSONL 行。文件可读、writer 状态清除都**不是历史完整性证明**。V5 backend 物理持久化保证仍未知。
 
-1. Storage V5：由 `pue → r.append` 继续定位 backend 实现及成功/失败语义；确认是否有可证明的 crash/durability 合同。报告 36 确认部分 queue item 在错误后也会 resolve，不能用 Promise 正常返回替代 writerHealth 检查。
-2. Writer recovery：明确 `qb`、degradedStore、storeFence 的错误分类及 reader/replay 能否检测缺失项。
-3. Fallback × Host：已确认 `streaming_fallback_began → abandonAttempt → tombstone/abort`，下一步追已启动 Remote Host 调用与 ledger/reconcile 的端到端交互。
-4. 本地工具与 MCP Host：检查 abort、权限、断连、迟到结果和副作用是否可统一恢复。
-5. 再研究 subagent、上下文压缩、Desktop/SDK 和 Pi 完整源码；为架构比较建立统一证据表。
-6. 所有研究记录源码路径、符号、offset/hash 和证据等级；静态/动态分开。
+**下一轮优先：**
+
+1. 继续定位 Storage V5 后端实际实现/来源。只找到 consumer 接口时，明确未知边界，不把 Promise resolve / readRecords 读成功当作 fsync 或 Exactly-once 证据。
+2. 端到端追踪 `abandonAttempt → discardAndAbortInFlight → hosts.runToolUse` 与 remote Host call-state、delivery_unknown、late answer 的联动，按 started/queued/completed 和本地/远端分别画状态转换。
+3. 复核本地 Shell 与 MCP 的权限、取消、并发和副作用恢复边界。
+4. 研究 Subagent、context compaction、Desktop/SDK 与 Pi 的完整机制，再构造独立的新架构备选方案。
+
+每个结论标明版本、文件、符号/偏移、静态事实/推断/未知；研究完成前不开发。
 
 ### B. 再研究 Desktop / SDK
 
@@ -89,11 +92,14 @@
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 36：Transcript 写入失败与流式 Fallback 收敛](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)。直接复核 CLI 2.1.304 发布版 JS：
+本轮已读取 PR #49 的旧进度、最新研究评论；直接检查 CLI 2.1.304、Desktop SDK wrapper 0.3.304 的源码样本，新增 [报告 37](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)。
 
-- `enqueueWrite` 返回的逐条 Promise 不是磁盘成功的充分证据：在 diskless/no backend 和部分 drain 错误路径中，代码会记录 writerHealth/degradedStore，但仍 resolve 队列项；`storeFence` 只在特定错误条件下设置。
-- `pue` 对 Storage V5 使用 `r.append` 接口，对 direct file 使用 appendFile 或 open/write/close。本层未找到可直接证明 V5 的持久化保证，也没有做故障注入。
-- 模型流发生 `streaming_fallback_began` 时，Loop 通过 `abandonAttempt` 生成 tombstone、清理 in-progress 状态、对 executing 工具发送 abort，并重建本尝试 executor；refusal/model fallback 也会走相关路径。
-- **外部工具已发生副作用并不会因为 tombstone 或 abort signal 自动回滚**，具体 Host/MCP 收敛仍需继续跟踪。
+**新的源码结论：**
 
-**下一次新对话第一任务：** 定位 Storage V5 backend、writerHealth 错误分类与 reader/replay；之后追完整 fallback × remote Host call ledger 的收敛。报告 33–36 均为静态源码研究，不是最终架构裁决；不允许开始开发。
+- `qb` 仅在特定 source/路径/错误及阈值条件下设置 degradedStore；`nRt` 在新 append 成功时可清除降级，这不等于重建了旧记录。
+- `see` 可尝试 `readRecords` 分页恢复某些 V5 read 失败，允许部分损坏行被跳过；reader 的完成不证明 transcript 无缺口。
+- `sessionMessages` 捕获读失败后仍可能返回当前可用 UUID 集合；`qk` dedupe 依赖此集合，不能由此推断 crash-safe exactly-once。
+- 在已检查的 source-only JS 中尚未追到 V5 后端物理写入保证；**仍未知**。
+- 没有执行样本、没有故障注入、没有批准架构/开发。
+
+**下一次第一任务：** 追 `abandonAttempt / discardAndAbortInFlight` 与远端 Host ledger/late-result 的端到端交互；同时继续核对 V5 backend 的真实实现出处。不要从旧 Kernel 的实现反推架构结论。
