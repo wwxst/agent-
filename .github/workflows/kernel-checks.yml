@@ -28,3 +28,18 @@ jobs:
         run: npm run check
       - name: Run deterministic tests
         run: npm test
+
+  pi-core-adapter-spike:
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'experiment/pi-agent-core-adapter-spike-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Install isolated Pi Core dependencies
+        run: npm install --prefix experiments/pi-core-adapter --no-audit --no-fund
+      - name: Run Pi Core adapter spike
+        run: npm test --prefix experiments/pi-core-adapter

@@ -170,12 +170,51 @@ export class AgentKernel {
     // The checkpoint is written INSIDE the active Turn, so use throughSeq,
     // not checkpoint.seq, or this Turn's queued user.message would vanish.
     const after = checkpoint?.throughSeq ?? 0;
+    const visibleEvents = events.filter(event => event.seq > after);
+
+    // Journal order is the order in which trusted results became durable.
+    // That order can differ from the model's original ToolCall order when
+    // parallel tools finish out of order, so index results before projecting.
+    const resultsByCall = new Map<string, ToolResult>();
+    for (const event of visibleEvents) {
+      if (event.type !== 'tool.result') continue;
+      if (!event.turnId) throw new KernelError('CORRUPT_EVENT_LOG', 'Tool result missing turnId');
+      const result = event.data as ToolResult;
+      const key = JSON.stringify([event.turnId, result.callId]);
+      if (resultsByCall.has(key)) {
+        throw new KernelError('CORRUPT_EVENT_LOG', 'Duplicate tool result for one ToolCall');
+      }
+      resultsByCall.set(key, result);
+    }
+
     const messages: ContextMessage[] = checkpoint ? [{role:'summary',text:checkpoint.summary}] : [];
-    for (const event of events) {
-      if (event.seq<=after) continue;
-      if (event.type === 'user.message') messages.push({ role: 'user', text: (event.data as { text: string }).text });
-      if (event.type === 'assistant.message') messages.push(structuredClone(event.data as AssistantMessage));
-      if (event.type === 'tool.result') messages.push({ role: 'tool', result: structuredClone(event.data as ToolResult) });
+    const projectedResults = new Set<string>();
+    for (const event of visibleEvents) {
+      if (event.type === 'user.message') {
+        messages.push({ role: 'user', text: (event.data as { text: string }).text });
+      }
+      if (event.type === 'assistant.message') {
+        if (!event.turnId) throw new KernelError('CORRUPT_EVENT_LOG', 'Assistant message missing turnId');
+        const assistant = structuredClone(event.data as AssistantMessage);
+        messages.push(assistant);
+        // Keep each ToolResult adjacent to its assistant batch and in the
+        // exact order the model requested, independent of completion timing.
+        for (const call of assistant.toolCalls) {
+          const key = JSON.stringify([event.turnId, call.id]);
+          const result = resultsByCall.get(key);
+          if (!result) {
+            throw new KernelError('RECOVERY_REQUIRED', 'Missing durable result for assistant ToolCall');
+          }
+          if (result.name !== call.name) {
+            throw new KernelError('CORRUPT_EVENT_LOG', 'Tool result name does not match assistant ToolCall');
+          }
+          messages.push({ role: 'tool', result: structuredClone(result) });
+          projectedResults.add(key);
+        }
+      }
+    }
+    if (projectedResults.size !== resultsByCall.size) {
+      throw new KernelError('CORRUPT_EVENT_LOG', 'Tool result has no matching assistant ToolCall');
     }
     return messages;
   }
