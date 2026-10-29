@@ -25,15 +25,16 @@
 | 报告 31 | Pi Core 注入 Journal/Host 的边界原型，11/11 测试 | 未接真实 EventStore/Host；不证明事务、恢复和安全边界 |
 | 报告 32 | Claude CLI / Desktop SDK 与旧 Kernel 的初步对照 | 静态分析；不能把旧 Kernel 的约束当成新设计要求 |
 | 报告 33 | CLI 2.1.304 入口→Loop→模型流→工具调度→结果回填 | 静态源码；持久化/Host/完整失败状态机仍需继续 |
-| 报告 34 | session.append hook、transcript writer/flush、local/remote tool route | 确认记录器与 hook 是两条路径；未证明实际 crash-safe 顺序或 Host ledger 行为 |
+| 报告 34 | session.append hook、transcript writer/flush、local/remote tool route | 已追 queue drain 与 exit flush；未证明底层 fsync/crash guarantee |
+| 报告 35 | remote ToolHost 路由、权限 gate、call state、reconnect reconcile 与 delivery_unknown | 静态源码；未运行真实 Host；ledger 跨进程持久化保证未知 |
 
 ## 4. 研究覆盖率
 
 | 子系统 | 状态 | 下一步 |
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
-| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；仍需核验 write queue/flush 顺序、Host/MCP 路由和完整错误状态机 |
-| Claude CLI 权限、并发和失败恢复 | **部分核验** | 已确认 class vs 并发合同、wG/AYr 权限路径、local/remote route 选择和输入复验；下一步追 Host 实现、全分支和副作用边界 |
+| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook 与 remote Host 路由/reconcile；仍需核验底层 write backend、MCP Host 分支和完整错误状态机 |
+| Claude CLI 权限、并发和失败恢复 | **部分核验** | 已确认 class vs 并发合同、wG/AYr 权限路径、remote Host 的 call-state/reconcile/delivery_unknown 路径；下一步核验 backend 写入语义、本地工具失败语义及全分支副作用边界 |
 | Claude CLI 上下文压缩与 Subagent | **初步定位，未完成** | 已确认每轮前 autocompact 与 prompt-too-long reactive 路径；subagent 父子状态和完整压缩转移待查 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
 | MCP、宿主工具桥接和安全边界 | 未完成 | 确认调用链、审批点和信任边界 |
@@ -46,12 +47,12 @@
 
 ### A. Claude CLI 的完整执行链（进行中）
 
-第一轮入口与 Loop 追踪见 [报告 33](./33-Claude-CLI执行链源码复核-2026-10-29.md)；append/transcript 与 local/remote 路由补充见 [报告 34](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)。两份报告均基于 CLI 2.1.304 实际发布版 JS 静态检查。
+入口/Loop 见 [报告 33](./33-Claude-CLI执行链源码复核-2026-10-29.md)，transcript 与路由见 [报告 34](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)，remote Host 执行/恢复见 [报告 35](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)。均基于 CLI 2.1.304 发布版 JS 静态检查。
 
 下一轮按以下顺序继续：
 
-1. 追踪 write queue 的 `drainQueuesOnce`、`appendToFile`、`flush()` 与 exit/shutdown flush；区分“record 已排队 / writer 已 drain / 是否有 fsync 证据”。
-2. 追踪 `hosts.runToolUse` 的实际 host router/执行实现和 MCP host 分支，核对权限复验、STARTED/terminal 记录、断连与 UNKNOWN 行为。
+1. 追踪 `appendToFile → pue` 的底层 backend 写入语义，区分 queue resolved、writer drained、backend completion 与 fsync 证据；检查非正常进程崩溃路径。
+2. 追踪本地工具的执行事实/失败语义，并完成 MCP Host 路由分支的核验。
 3. 补齐 streaming retry、non-streaming fallback、model/refusal fallback、abort、tombstone 和已启动工具收敛的状态机。
 4. 追踪 interrupt/turn abort/shutdown 与 tool interruptBehavior，确认取消不等同于副作用回滚。
 5. 再研究 subagent 父子状态、预算、权限、后台运行和恢复。
@@ -87,6 +88,6 @@
 
 ## 8. 本轮续接标记
 
-本轮完成了**Claude CLI 执行链与会话记录/工具路由的两轮静态源码复核**，详见报告 33、34。已核实 `r.appended(v)` 属于 session.append hook；transcript 另由 `xR → qk → insertMessageChain → appendEntry/enqueueWrite` 处理。普通 Assistant record 调用不显式 await，record 会跳过 stop_reason 为空的 Assistant row，且文件写入队列有独立 drain/flush 路径。当前不能据此断言存在数据丢失，但必须进一步核验实际写入/flush 顺序与 Host 执行账本。
+本轮完成了**Claude CLI 执行链、transcript 写入与 remote Host 恢复的静态源码复核**，详见报告 33–35。已确认 transcript 有独立异步写队列、显式 drain/flush 与 exit flush；remote Host 路径存在 call-state、reconnect reconcile 和 delivery_unknown/gaveUp/answeredLate 处理。仍未确认底层 backend 的 fsync/crash guarantee，也未证明 runtime ledger 跨进程持久化。
 
-**当前续接点：** 先追踪 write queue/flush 与 exit/shutdown 路径，再追 `hosts.runToolUse` 的 Host/MCP 实现及权限/UNKNOWN 处理，然后补齐 stream retry/fallback/abort/tombstone 状态机。当前所有结论仍为静态源码证据；未运行 CLI，未动态验证实际分支。
+**当前续接点：** 先追踪 `appendToFile → pue` 的底层写入与非正常崩溃路径，再核验本地工具失败语义和 MCP Host 路由，之后补齐 stream retry/fallback/abort/tombstone 状态机。当前所有结论仍为静态源码证据；未运行 CLI，未动态验证实际分支。
