@@ -359,7 +359,7 @@ PR #48 报告 30–31：
 | packages/ai/src/utils/event-stream.ts | eb968c016dfba785899c770099a74d0180b53364 | FifoQueue; EventStream.push/end/asyncIterator/result |
 | packages/agent/test/agent.test.ts | 6fad6109fa090bd9348b87350c92d194c21d27f2 | async subscriber barrier; waitForIdle; AbortSignal |
 | packages/agent/test/agent-loop.test.ts | 4a9386a131db7f24b3f309d4b9b2e545277a3fbc | parallel completion order vs ToolResult source order |
-| packages/agent/CHANGELOG.md | 2ae23784dec2b4986c513abc3f1e8cd58a7096dc | v1.0.0 Harness removal; v1.4.0 identity |
+| packages/agent/CHANGELOG.md | 5b970f8d092e2254776025dc124e4cd061eba688 | v1.0.0 Harness removal; v1.4.0 identity |
 | packages/durable/package.json | f5756989cdc757004bffd0b8105f78056a4ee1fc | pi-durable@1.4.0, exports, storage subpaths |
 | packages/durable/src/harness/tool.ts | v1.4.0 source | ToolTask intent checkpoint, replay-safe recovery, nested calls |
 
