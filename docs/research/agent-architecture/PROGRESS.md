@@ -1,7 +1,7 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 59：同场景对照；报告 60–61：独立架构草案、验收与路线图）  
-> 当前阶段：**源码证据比较完成首轮；独立目标架构 v0.1 草案已提交审阅，技术/保证等级待确认**  
+> 最后更新：2026-10-30（报告 62–64：Operation UNKNOWN 对账、强制权限/沙箱与架构 v0.2 修订）  
+> 当前阶段：**源码比较首轮完成；独立架构 v0.2 研究设计已提交审阅；技术/安全/保证等级仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
 ## 1. 当前目标
@@ -53,6 +53,9 @@
 | 报告 59 | Claude CLI/Desktop/SDK vs Pi Core/Coding/Durable/Chord 的 12 个相同场景：并行 tool、远端 effect unknown、权限等待、取消、恢复、event/commit、compaction、MCP、subagent、API ack、power loss、owner fencing；最佳实践/缺口对照 | 来源于既有报告 33–58 的固定源码证据、上游测试定义；本轮未运行动态故障测试，未知明确保留 |
 | 报告 60 | 独立 Agent 执行内核候选架构 v0.1：小 Loop + durable Run/Task/Operation Journal + Tool Host/Gateway + Permission Authority + Context/Session/EventHub；状态机、IDs、3 条时序、技术选择和风险 | **设计提案，不是已有实现或开发授权**；R0–R4 保证等级、API/invariant 及部署选择待用户审阅 |
 | 报告 61 | 方案评审选择、10 条关键不变量、FI-01–16 故障验证计划、性能/可维护性评估、未来阶段路线图与未决问题 | **未来验收计划未执行**；阶段 1–6 仅在用户明确批准开发后可启动 |
+| 报告 62 | Operation UNKNOWN 回收协议：稳定 operationId/attemptId、Control owner vs effect owner、四轴状态、Host capability/prepare/execute/queryOutcome、可信旧 epoch late receipt、provider idempotency 边界 | 固定 Claude 35/38/41/48/50 和 Pi ToolTask/Scheduler/Chord v1.4.0 源码复核；协议为目标架构提案，未执行故障注入 |
+| 报告 63 | 权限/沙箱/数据安全设计：Project Trust vs tool approval vs OS sandbox、OperationGrant、nested/MCP/Subagent delegation、revoke TOCTOU、summary redaction lineage、物理删除冲突；A/B/C 架构替代方案与 ADR | 引用 Pi Coding official security.md/ToolHooks/Chord principal、Claude Desktop SDK；最终选型未批准，动态安全试验未做 |
+| 报告 64 | v0.2 整合设计：Hybrid C 默认候选与 Task-native B fallback；控制面事务/Intent/Receipt；stream-local eventSeq/snapshot consistency/provisional streaming；真实 Host effect evidence 及 recovery；7 项扩展故障门槛 | 设计合同，不是业务实现；未执行 CI/故障测试；报告 60/61 原简化表述已经加修订说明 |
 
 ## 4. 研究覆盖率
 
@@ -64,10 +67,10 @@
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
-| 完整源码比较与独立架构研究 | **首轮 Claude/Pi 同场景比较完成；独立架构 v0.1 草案及风险/实施门槛已形成，等待用户审阅** | 报告 33–58 记录发布源码证据；报告 59 汇总 12 场景；报告 60 分离 Loop/Task/Journal/Host/Permission/Context/Session/EventHub，并提出 R0–R4；报告 61 明确 10 不变量、16 个故障注入场景与未来阶段路线。真实 Provider/Host/Storage/Crash 试验及需求选型仍未完成；**无开发批准** |
-| 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
-| 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
-| 用户确认 | 未开始 | 完整方案交付后等待明确批准 |
+| 完整源码比较与独立架构研究 | **首轮源码和 12 同场景对比完成，架构 v0.2 与协议/安全修订已提交待审阅；真实故障验证未执行** | 报告 59 提供比较；60–61 是初版架构/验收；62 定义 Host Operation/UNKNOWN 和 late receipt；63 审查权限/沙箱/历史删除及 Hybrid/Task-native 取舍；64 整合 v0.2 事务、UI event cursor、Task/Host 状态与崩溃恢复。报告 60/61 原断言已注明修订；**未获开发批准** |
+| 横向架构比较 | **报告 59 已完成首轮 12 场景对照，待真实故障证据** | 在 v0.2 中验证 external effect/permission/fencing 的边界；旧报告 32 不作为最终结论 |
+| 新目标架构 | **报告 60–64 已形成 v0.2 候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择目标可靠性 tier、Host/sandbox、Context erasure、实际工具幂等能力，并补充待证据 |
+| 用户确认 | **未获开发批准；等待对 v0.2 和决策项的明确评审** | 用户可要求只修订设计；“继续”不能解释为准许进入开发 |
 
 ## 5. 下一步任务（按顺序执行）
 
@@ -132,19 +135,30 @@
 3. 独立设计目标 Agent 架构：需求/非目标、执行状态机、Task/Journal/Host/Permission/Context/Session/Storage/Recovery/RPC、部署方案、技术选型、风险和实施路线图。
 4. 将完整研究和架构方案提交用户审阅；未明确批准前禁止开发。
 
-### D. Claude/Pi 同场景比较与独立目标架构：首版研究设计已成稿
+### D. Claude/Pi 比较与独立架构：v0.2 方案待审阅
 
-- [报告 59：Claude / Pi 12 个同场景故障对照](./59-Claude与Pi同场景执行权限恢复矩阵-2026-10-30.md)
-- [报告 60：独立 Agent 执行内核目标架构草案 v0.1](./60-独立Agent执行内核目标架构草案-2026-10-30.md)
-- [报告 61：架构风险、故障验收矩阵与未来实施路线](./61-目标Agent架构验收矩阵风险与实施路线-2026-10-30.md)
+前置证据：
+- [59：Claude / Pi 12 场景对比](./59-Claude与Pi同场景执行权限恢复矩阵-2026-10-30.md)
+- [60：独立 Agent v0.1 草案（已加修订优先级提醒）](./60-独立Agent执行内核目标架构草案-2026-10-30.md)
+- [61：故障验证与未来实施路线（已修正 late receipt/双 owner 验收）](./61-目标Agent架构验收矩阵风险与实施路线-2026-10-30.md)
 
-研究结论：Claude Remote Host ledger / Desktop permission + SSH process adoption、Pi Core high-level awaited events、Pi Durable checkpointed Task/Intent、Chord typed RPC/owner/refs 均有可借鉴价值，但不存在一种可直接全盘照搬的完整 Agent Kernel。特别是 Coding Agent v1.4.0 运行 Core + JSONL SessionManager，不享有独立 Durable package 的 Task recovery 保证。
+本轮新增：
+- [62：Operation stable ID、Host effect evidence 与 UNKNOWN 对账协议](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)
+- [63：Mandatory Permission Authority、OS 沙箱、Context 安全失效与架构 A/B/C 备选](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)
+- [64：v0.2 事务、Event Stream、Task/Operation/Host 恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)
 
-独立设计（报告 60）提出 Task/Operation Journal 是 authoritative execution truth，模型 Loop 与 UI/Transcript 为相互独立的边界；Tool Host 以 operationId、owner epoch、policy revision 对账，默认外部 unsafe/unknown 不重试；Context summary 必须按 source revision/redaction epoch 失效；事件从 commit seq 派生 snapshot/cursor。候选技术 SQLite 单机 R1/R2 按配置，Postgres 可选多节点 R3，沙箱优先独立进程/容器。
+**本轮修正：**
+1. Intent-before-effect、控制面 DB CAS/Worker epoch 仅是必要条件，不可推断任意外部 effect exactly-once。Host ledger/queryOutcome 的 not-found 若不能排除并发执行，也不能证明 never-started。
+2. 旧 owner 不得提交新 Task transition/越权执行，但可信旧 owner late Receipt 仍应作为 operation effect evidence 被接纳并对账。
+3. Tool Operation 应分为 Control Task phase、Dispatch/Admission、Effect Evidence 和 Cancellation/Policy 四个正交状态域，不能用简单 RUNNING/COMPLETED 单线性状态表达。
+4. Pi Coding Project Trust 和 extension tool_call 并非 mandatory sandbox；任意 shell 获准后内部文件/网络动作需 OS/container 限制，不能逐项由高层审批自动拦截。
+5. Context summary 必须校验 SecurityRevision/redaction lineage；active model omit 与物理删除、派生 summary/索引/备份清理、第三方 Provider 保留完全不同。
+6. EventSeq 不可简单等于 CommitSeq。需要 conversation/stream-local 序列、同一事务分配、同一 snapshot barrier 读取 cursor；provisional tokens 不占权威 EventSeq。
+7. 建议 Hybrid C（小型 TurnEngine + Durable Coordinator + mandatory Host）为默认研究候选；若 Loop 无法在真实 side effect 前 await commit/permission，或要求完整 phase recovery，应采用 Task-native B。
 
-报告 61 给出 10 条不变量、16 个待做故障注入场景和未来分阶段实施路线。**这些是设计与验证计划，并不是任何动态试验结果，也不是开发批准。**
+**未来验证仍未执行**：报告 61 FI-01–16 与报告 64 的 FI-02b/04b/05b/07b/10b/13b/16b；不能据静态源码声称真实故障安全。
 
-**下一步审阅门禁：** 提交报告 59–61 与此前源码研究供用户确认目标需求/非目标、single vs multi-host、durability tier、默认权限策略、是否有历史删除/脱敏要求、可用 Tool idempotency/queryOutcome 及兼容性优先级。若用户要求修改方案，只更新研究报告。**未经明确批准禁止实现、修改 Kernel、写开发测试、创建开发 PR。**
+**审阅门禁**：待用户确认首发部署、本地/多节点与 R1/R2/R3/R4 等级、工具幂等能力、默认权限与沙箱、物理删除需求、UI 多客户端一致性、旧 Kernel 数据迁移。此前不得开发。
 
 ## 6. 每次新对话的恢复步骤
 
@@ -164,20 +178,28 @@
 
 ## 8. 本轮续接标记
 
-**本轮新增：** [报告 59：同场景对比](./59-Claude与Pi同场景执行权限恢复矩阵-2026-10-30.md)、[报告 60：目标架构草案](./60-独立Agent执行内核目标架构草案-2026-10-30.md)、[报告 61：风险与实施门禁](./61-目标Agent架构验收矩阵风险与实施路线-2026-10-30.md)。
+**最新研究/设计修订：** [62：Host Operation 对账](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)、[63：权限/沙箱/架构选型](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)、[64：目标内核 v0.2 集成协议](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)。
 
-### 本轮已完成（证据与草案，不是实现）
+### 已核验的源码事实
 
-- 依据 Claude CLI 2.1.304、Desktop 3.1623.1、SDK 0.3.304 已记录的 minified bundle SHA+字符偏移，和 Pi v1.4.0 固定 release Git blob 源码/上游测试定义，形成 12 场景矩阵：parallel tools、remote call unknown、permission/UI、cancel、crash resume、UI vs commit、compaction/redaction、MCP、subagent、RPC ack、power loss、process ownership。
-- 判断外部副作用 exactly-once、设备断电 durability、真实多 worker fencing、权限撤销时序、压缩期间脱敏等关键保证尚未被完整证明；故障状态须可落入 OUTCOME_UNKNOWN。
-- 设计草案提出 Loop、Run Coordinator、Durable Task Engine、Operation Journal、Host Gateway、Permission Authority、Tool Sandbox、Conversation/Context Store、Model Gateway、Event Hub、Process Supervisor 等独立模块，区分 R0–R4 的能力等级。
-- 关键操作按 pre-execution Intent、Host-side permission/owner epoch 二次校验、Receipt+ToolResult atomic commit、UI snapshot/cursor 组织；敏感历史修改需要 ContextRevision/redaction epoch fence。
-- 评审补充明确 10 条关键不变量、FI-01–16 待执行实验与未来阶段 0–6 的工程路线。**全部未开始实现，所有实验只在未来获允许的环境中进行。**
+- Claude CLI 2.1.304 Host ledger/ranNothing/late outcome correction、Desktop 3.1623.1 PermissionBroker/SSH process adoption 仅有固定发布 JS 静态证据；真实 Host/V5 backend/SSH helper durability 仍未知（报告 35/38/45/48/50）。
+- Pi Durable v1.4.0 ToolTask 源码 packages/durable/src/harness/tool.ts blob 52bc4a3ada1892645aca5a35f4d90b875edda4ca L103–213：在 run() 前提交 execute checkpoint，恢复只有 stored/current safe 才 rerun，否则 interrupted/may-have-run；settle L637–704 同一 commit 处理 ToolResult/Task。Scheduler blob 23951e89934a6214329e7511f3fc8bca2d23f921 L374–423 恢复 running→pending，L545–624 abort/owner 等待分层。
+- Chord Connection/HostManager 不提供持久 Link replay / 外部 effect fencing（报告 54/56）。
+- Pi Coding 1.4.0 default no per-tool approvals，Project Trust 不是 sandbox，Tool Hooks 可选；MCP exposure 只是工具声明/发现策略（报告 58）。
+- Pi Durable CompactionTask 上游 test 明确展示并发 application redact edit 可被新 summary head 遮蔽（报告 57）；测试本轮未执行。
 
-### 仍未知/待用户选择
+### v0.2 已提交但仍是待审阅候选
 
-- Claude V5 backend/SSH helper/Cloud Session 的服务端物理保证；Pi npm dist build parity、真实数据库掉电与外部工具效果；均不得推测。
-- 首发单机或多节点、目标 R1/R2/R3/R4、默认权限行为、项目 trust 与沙箱边界、历史脱敏/物理删除要求、Provider/tool 幂等能力和现有 Kernel 数据迁移范围。
-- 草案 v0.1 是可审阅研究交付，具体接口/状态机/技术方案可按评审修订；**没有用户明确批准，仍处于架构研究与设计阶段。**
+- 不使用线性 Tool 状态来伪装事实；分离 Task control、Operation dispatch、Effect evidence、cancel/revoke，多版 operationId/attemptId/worker epoch 和 Host capabilities。
+- 概念 Host prepare/execute/queryOutcome 保持 same operationId，不把 prepare/execute 叫成可原子提交外部 API 的 2PC；late completion 进入审计/对账，旧 owner 不得篡改新 Task。
+- Mandatory Permission Authority + 实际执行 Host gate + OS sandbox；历史安全编辑增加 Summary SecurityRevision fence；物理删除另定。
+- v0.2 订正 EventHub：stream-local eventSeq + snapshot consistent cursor，token streaming 只是 provisional。
+- Hybrid C 是研究推荐，Task-native B 备选；首发环境与具体协议/技术栈未批准。
 
-**下一步：** 请用户审阅报告 59–61。若需继续深入，可以补完整源码证据或修订设计；得到明确开发批准之前，绝不进入实施。
+### 未决与下一步
+
+1. 用户审阅报告 59–64，明确首发可靠性 tier、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性。
+2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
+3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
+
+**开发批准状态：未获得。** 用户“继续”仅表示继续研究。
