@@ -1,7 +1,7 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 58：Pi Coding Agent 产品组合层；报告 57：Durable Compaction）  
-> 当前阶段：**源码研究与证据盘点**  
+> 最后更新：2026-10-30（报告 59：同场景对照；报告 60–61：独立架构草案、验收与路线图）  
+> 当前阶段：**源码证据比较完成首轮；独立目标架构 v0.1 草案已提交审阅，技术/保证等级待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
 ## 1. 当前目标
@@ -50,6 +50,9 @@
 | 报告 56 | Chord 1.4.0 Node HostManager start/stop/replace/ready/fatal/idle；forkDriver IPC/process group；childControl.lock-before-storage；processLock Linux abstract socket / Windows named pipe / Unix socket file stale race；root/Link in-flight outcome unknown；上游真实子进程测试源码 | 固定 v1.4.0 源码和既有 tests 静态复核，未执行；没有内部 crash auto-respawn；父进程崩溃、跨平台锁、multi-owner DB 与外部工具效果未动态验证 |
 | 报告 57 | Durable CompactionTask select/summarize/retry checkpoint；ContextView head/tail/edits 与 tool result projection；blocking/background/overflow；Submission stale 规则；SQLite reopen 和中断摘要重发；并发应用 edit 被旧 summary 遮蔽的显式上游测试 | v1.4.0 源码与上游测试静态核验；本轮未运行测试，真实 provider billing、脱敏/删除一致性、断电故障未验证 |
 | 报告 58 | pi-coding-agent 1.4.0 实际依赖 pi-agent-core 而非 pi-durable；CLI→SDK→AgentSession→SessionManager；JSONL session tree/compaction；extension tool hooks；内置 MCP exposure/connection；project trust 与默认 tool approval；TUI/Print/RPC 受理/事件边界 | 固定发布版源码和 security docs 静态核验；no CLI/MCP/Provider/crash tests；JSONL 无 Task execution intent/recovery 与独立 Durable Harness 不能混淆 |
+| 报告 59 | Claude CLI/Desktop/SDK vs Pi Core/Coding/Durable/Chord 的 12 个相同场景：并行 tool、远端 effect unknown、权限等待、取消、恢复、event/commit、compaction、MCP、subagent、API ack、power loss、owner fencing；最佳实践/缺口对照 | 来源于既有报告 33–58 的固定源码证据、上游测试定义；本轮未运行动态故障测试，未知明确保留 |
+| 报告 60 | 独立 Agent 执行内核候选架构 v0.1：小 Loop + durable Run/Task/Operation Journal + Tool Host/Gateway + Permission Authority + Context/Session/EventHub；状态机、IDs、3 条时序、技术选择和风险 | **设计提案，不是已有实现或开发授权**；R0–R4 保证等级、API/invariant 及部署选择待用户审阅 |
+| 报告 61 | 方案评审选择、10 条关键不变量、FI-01–16 故障验证计划、性能/可维护性评估、未来阶段路线图与未决问题 | **未来验收计划未执行**；阶段 1–6 仅在用户明确批准开发后可启动 |
 
 ## 4. 研究覆盖率
 
@@ -61,7 +64,7 @@
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
-| Pi Agent Core / Durable / Chord / Coding Agent | **Core、Durable Harness、Chord Host/RPC/Storage/HostManager、Compaction、Coding Agent 产品组合层已完成首轮发布版源码研究；真实故障测试与跨实现比较未完成** | 报告 52–58：明确 Coding Agent 用 Core Agent + JSONL SessionManager，不用 Durable Harness；Durable CompactionTask checkpoint/background stale 与并发编辑丢失边界；Coding Agent 项目信任非沙箱、默认无逐工具批准、MCP tool hooks 可选；下一步 Claude/Pi 同场景矩阵、动态风险计划和独立架构设计 |
+| 完整源码比较与独立架构研究 | **首轮 Claude/Pi 同场景比较完成；独立架构 v0.1 草案及风险/实施门槛已形成，等待用户审阅** | 报告 33–58 记录发布源码证据；报告 59 汇总 12 场景；报告 60 分离 Loop/Task/Journal/Host/Permission/Context/Session/EventHub，并提出 R0–R4；报告 61 明确 10 不变量、16 个故障注入场景与未来阶段路线。真实 Provider/Host/Storage/Crash 试验及需求选型仍未完成；**无开发批准** |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
 | 用户确认 | 未开始 | 完整方案交付后等待明确批准 |
@@ -96,8 +99,8 @@
 1. 仅在可获得真实 Storage V5 provider、Cloud Session API contract 或隔离环境时，验证 V5 durability、Cloud event cursor、archive acknowledgement、permission relay 与真实副作用；否则维持未知，不以 mock 代替服务端事实。
 2. 报告 46 已将多次 Full/Reactive compact、preserved UUID / anchor 缺失、parentUuid cycle、JSONL torn tail、V5 readRecords fallback、Remote Agent null cursor / metadata loss / archived terminal result 放入统一状态矩阵；矩阵中的所有 crash 结果仍需动态测试。
 3. Desktop/SDK 报告 47–51 已覆盖可读发布版主要宿主、callback、MCP 生命周期。hosted renderer reload、native process job、SSH helper server-side、MCP reconnect / elicitation recovery 与真实 crash 行为保留为未知；不再把不可读服务端路径当作当前可推进源码任务。
-4. Pi Core、Durable、Chord、Storage adapters、HostManager、Compaction 与 Coding Agent 发布版首轮源码研究见报告 52–58。确认 Coding Agent 实际运行 Core + JSONL SessionManager，不直接使用 Durable Harness；下一步横向比较 Claude/Pi 的执行、权限、MCP、上下文、存储与恢复，再独立设计目标架构。真实 crash/断电/工具副作用测试仍未完成。
-5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
+4. Claude/Pi 固定发布版源码首轮比较已经汇成报告 59；独立目标架构设计草案和验收/实施路线图在报告 60–61。下一步审阅架构选择、可靠性等级与实际工具需求，并按证据缺口计划隔离动态测试。任何实现均需明确开发批准。
+5. 研究阶段已有首版可审阅交付；未把报告 59–61 当成已批准决策。所有实际故障保证、Provider/Cloud/SSH helper 服务端和用户产品需求仍保留未决。
 
 ### B. Desktop / SDK（报告 47–51：可读发布版源码主要生命周期追踪完成）
 
@@ -129,9 +132,19 @@
 3. 独立设计目标 Agent 架构：需求/非目标、执行状态机、Task/Journal/Host/Permission/Context/Session/Storage/Recovery/RPC、部署方案、技术选型、风险和实施路线图。
 4. 将完整研究和架构方案提交用户审阅；未明确批准前禁止开发。
 
-### D. 最后统一比较并提出全新架构
+### D. Claude/Pi 同场景比较与独立目标架构：首版研究设计已成稿
 
-在完成前述证据后，定义目标需求和非目标，比较自研、复用、集成和重写的成本/风险，形成模块图、接口、时序、持久化/恢复、安全模型、技术选型与验收计划。交用户确认前不写实现。
+- [报告 59：Claude / Pi 12 个同场景故障对照](./59-Claude与Pi同场景执行权限恢复矩阵-2026-10-30.md)
+- [报告 60：独立 Agent 执行内核目标架构草案 v0.1](./60-独立Agent执行内核目标架构草案-2026-10-30.md)
+- [报告 61：架构风险、故障验收矩阵与未来实施路线](./61-目标Agent架构验收矩阵风险与实施路线-2026-10-30.md)
+
+研究结论：Claude Remote Host ledger / Desktop permission + SSH process adoption、Pi Core high-level awaited events、Pi Durable checkpointed Task/Intent、Chord typed RPC/owner/refs 均有可借鉴价值，但不存在一种可直接全盘照搬的完整 Agent Kernel。特别是 Coding Agent v1.4.0 运行 Core + JSONL SessionManager，不享有独立 Durable package 的 Task recovery 保证。
+
+独立设计（报告 60）提出 Task/Operation Journal 是 authoritative execution truth，模型 Loop 与 UI/Transcript 为相互独立的边界；Tool Host 以 operationId、owner epoch、policy revision 对账，默认外部 unsafe/unknown 不重试；Context summary 必须按 source revision/redaction epoch 失效；事件从 commit seq 派生 snapshot/cursor。候选技术 SQLite 单机 R1/R2 按配置，Postgres 可选多节点 R3，沙箱优先独立进程/容器。
+
+报告 61 给出 10 条不变量、16 个待做故障注入场景和未来分阶段实施路线。**这些是设计与验证计划，并不是任何动态试验结果，也不是开发批准。**
+
+**下一步审阅门禁：** 提交报告 59–61 与此前源码研究供用户确认目标需求/非目标、single vs multi-host、durability tier、默认权限策略、是否有历史删除/脱敏要求、可用 Tool idempotency/queryOutcome 及兼容性优先级。若用户要求修改方案，只更新研究报告。**未经明确批准禁止实现、修改 Kernel、写开发测试、创建开发 PR。**
 
 ## 6. 每次新对话的恢复步骤
 
@@ -151,26 +164,20 @@
 
 ## 8. 本轮续接标记
 
-**最新报告：** [57：Pi Durable CompactionTask、上下文边界与恢复风险](./57-Pi-Durable-CompactionTask上下文边界重放与失效风险-2026-10-30.md)；[58：Pi Coding Agent Core / Session / MCP / Permission / RPC 产品组合](./58-Pi-CodingAgent产品组合CoreSessionMCP权限与RPC-2026-10-30.md)。
+**本轮新增：** [报告 59：同场景对比](./59-Claude与Pi同场景执行权限恢复矩阵-2026-10-30.md)、[报告 60：目标架构草案](./60-独立Agent执行内核目标架构草案-2026-10-30.md)、[报告 61：风险与实施门禁](./61-目标Agent架构验收矩阵风险与实施路线-2026-10-30.md)。
 
-### 报告 57：CompactionTask / ContextView
+### 本轮已完成（证据与草案，不是实现）
 
-- CompactionTask 持久化 select/summarize/retry checkpoint：model/thinking/options/tail/firstKept/attempt；原始 entries 不删除，pi.compaction Entry + head marker 重建模型历史。
-- ContextView 在 Session line 捕获 head/tail，离线扫描不可变 entry，并重建 edits/system/tool results；selectCut 避免在 toolResult 或未配对 tool call 中切断。
-- GenerationTask threshold 有 blocking / background 两档；context overflow 只有一次 blocking compaction；background/manual 摘要通过 durable Submission 在 postTools/final boundary 放置，head 太老时 unanswered/stale。
-- 已读上游 harness-compaction.test.ts：在 SQLite reopen 后已 commit 摘要不再请求；进行中的 summarization 重开后会重新发送模型请求（可重复计费）、retry sleeping 和 queued Submission 可恢复。**本轮未执行测试**。
-- 同一测试 L1877 明确表明：compaction 总结未脱敏历史期间，后续 application ContextEdit 可能在新 head range 中被遮蔽。若目标系统支持删除/脱敏/权限撤销，必须对 summary validity 做重新校验/fence，不能照搬。
+- 依据 Claude CLI 2.1.304、Desktop 3.1623.1、SDK 0.3.304 已记录的 minified bundle SHA+字符偏移，和 Pi v1.4.0 固定 release Git blob 源码/上游测试定义，形成 12 场景矩阵：parallel tools、remote call unknown、permission/UI、cancel、crash resume、UI vs commit、compaction/redaction、MCP、subagent、RPC ack、power loss、process ownership。
+- 判断外部副作用 exactly-once、设备断电 durability、真实多 worker fencing、权限撤销时序、压缩期间脱敏等关键保证尚未被完整证明；故障状态须可落入 OUTCOME_UNKNOWN。
+- 设计草案提出 Loop、Run Coordinator、Durable Task Engine、Operation Journal、Host Gateway、Permission Authority、Tool Sandbox、Conversation/Context Store、Model Gateway、Event Hub、Process Supervisor 等独立模块，区分 R0–R4 的能力等级。
+- 关键操作按 pre-execution Intent、Host-side permission/owner epoch 二次校验、Receipt+ToolResult atomic commit、UI snapshot/cursor 组织；敏感历史修改需要 ContextRevision/redaction epoch fence。
+- 评审补充明确 10 条关键不变量、FI-01–16 待执行实验与未来阶段 0–6 的工程路线。**全部未开始实现，所有实验只在未来获允许的环境中进行。**
 
-### 报告 58：实际 Coding Agent 产品组合
+### 仍未知/待用户选择
 
-- pi-coding-agent@1.4.0 package 依赖 pi-agent-core、pi-ai、pi-mcp、pi-tui，不依赖 pi-durable；CLI → main → sdk.createAgentSession → new Core Agent → AgentSession → SessionManager；TUI/Print/RPC 在同一个业务 AgentSession 上运行。
-- SessionManager 是本地 JSONL append-only tree（id/parentId/leafId），首次 user/assistant 后才创建文件；后续 appendFileSync，缺少 per-entry fsync。_appendEntry 先推进内存索引，再写磁盘；可恢复 transcript/branch/model/thinking，不恢复 Durable ToolTask/外部效果。
-- AgentSession 的 message_end 先走 extension 和 public event emit，然后 SessionManager.appendMessage；UI event 不等于 durable commit ack。
-- Coding Agent 具有独立的 compaction implementation（JSONL appendCompaction、split-turn summary 与 file ops），不同于 Durable CompactionTask phase state machine。
-- MCP 作为内置 extension：默认 exposure=codemode，另有 deferred / direct / hidden，tool_call hooks、OAuth 和 session-specific cleanup；非强制权限 broker。
-- 官方 security.md：以 OS user 权限操作，默认不逐 tool call 审批；project trust 管资源加载不是 sandbox；可选 permission-gate extension 示例不构成默认执行安全边界。
-- RPC stdin/stdout JSONL 中 prompt response 是 preflight acceptance，不是终态成功或外部工具 receipt；extension UI requests pending Map 在内存中，无 durable replay。
+- Claude V5 backend/SSH helper/Cloud Session 的服务端物理保证；Pi npm dist build parity、真实数据库掉电与外部工具效果；均不得推测。
+- 首发单机或多节点、目标 R1/R2/R3/R4、默认权限行为、项目 trust 与沙箱边界、历史脱敏/物理删除要求、Provider/tool 幂等能力和现有 Kernel 数据迁移范围。
+- 草案 v0.1 是可审阅研究交付，具体接口/状态机/技术方案可按评审修订；**没有用户明确批准，仍处于架构研究与设计阶段。**
 
-### 下一步：跨实现同场景矩阵与独立目标方案
-
-先编写 Claude CLI 2.1.304 / Desktop 3.1623.1 / SDK wrapper 0.3.304 / Pi 1.4.0 的跨维度对照报告（Loop、Tool/Host、Permission、MCP、Context、Session、Storage、Recovery、RPC、Crash），每格标注源码事实/推断/未知与 source anchor。然后整理最佳实践、架构备选、目标模块/协议/状态机/技术方案、风险及阶段验证路线。所有动态故障注入仍是未做项目，不得称已验证。**未获用户明确批准前不开发。**
+**下一步：** 请用户审阅报告 59–61。若需继续深入，可以补完整源码证据或修订设计；得到明确开发批准之前，绝不进入实施。
