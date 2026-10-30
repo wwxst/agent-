@@ -35,15 +35,16 @@
 | 报告 41 | Bash / MCP ordinary / SEP-2663 / Remote Host 的取消时序矩阵；task handle 迟到时补发 tasks/cancel；按阶段比较 caller、执行端、sidecar/ledger 与结果回收 | 静态源码综合；未运行故障注入；local Bash restart、第三方 MCP cancel、Storage V5 durability 仍未知 |
 | 报告 42 | Agent Tool sync/async launch；parentAgentId/ownerAgentId；keepalive/notification；TaskStop ownership/cascade；metadata+transcript resume；worker adoption 与 Shell PID reattach | 静态源码；remote Agent Host、worker crash/reconnect、Storage V5 sidecar durability 和部分 parent-stop 时序未动态验证 |
 | 报告 43 | Full/Reactive/Precomputed compaction 与 Microcompact 区分；按 assistant message ID 保留完整轮次；compact boundary UUID relink；Agent Uve 状态附件；precompute main-only 边界；Agent resume reader 通过 hdo/RMt/bdo 重建 parentUuid 与 tool_result | 静态源码；未运行 compaction/resume；多次 compact + torn tail、remote worker handoff 与 Storage V5 durability 未动态验证 |
+| 报告 44 | Remote Agent Tool → Cloud Session create → remote_agent task/metadata sidecar → K3t event poll + permission relay → MQt/O8o resume → TaskStop/archive；区分 cloud task restore 与 local Agent W7/adoptedPrefill | 静态源码；event cursor replay、archived terminal replay、archive ack、Storage V5 durability 与真实 cloud worker 行为未动态验证 |
 
 ## 4. 研究覆盖率
 
 | 子系统 | 状态 | 下一步 |
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
-| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–41 已补 remote cancel/call ledger、Bash/MCP executor、后台任务恢复与取消时序矩阵；报告 42–43 已补 Agent/Subagent lifecycle、compaction 与 transcript resume reader；仍需核验 Storage V5 backend、真实进程/服务器取消及完整故障状态机 |
-| Claude CLI 权限、并发和失败恢复 | **部分核验，静态取消时序矩阵已完成** | 报告 38–41 覆盖 remote Host、Bash foreground/background/TaskStop、MCP ordinary auto-background、SEP-2663 handle/cancel/reconnect/restore；仍需真实 Shell/MCP side effect 验证、remote Agent Host 与 worker exit/reconnect |
-| Claude CLI 上下文压缩与 Subagent | **第一轮源码链已追通；动态验证未做** | 报告 42–43 已追 Agent sync/async、owner/parent、keepalive、TaskStop、resume、worker adoption；Full/Reactive/Precomputed/Microcompact；compact boundary UUID relink；Agent resume reader 的 hdo/RMt/bdo parentUuid 与 tool_result reconstruction。下一步补 remote Agent worker lifecycle、multi-compact/torn-tail 故障场景与真实运行验证 |
+| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–41 已补 remote cancel/call ledger、Bash/MCP executor、后台任务恢复与取消时序矩阵；报告 42–43 已补 Agent/Subagent lifecycle、compaction 与 transcript resume reader；报告 44 已追 Remote Agent Cloud Session create/poll/restore/archive；仍需核验 Storage V5 backend、真实进程/服务器取消及完整故障状态机 |
+| Claude CLI 权限、并发和失败恢复 | **本地与远端任务路径已有静态状态机；动态验证未做** | 报告 38–41 覆盖 Remote Host/Bash/MCP 取消；报告 44 覆盖 Remote Agent Cloud Session create/poll/restore/archive 与 permission relay；仍需验证 event cursor replay、archived result recovery、archive ack、真实 Shell/MCP/cloud side effects |
+| Claude CLI 上下文压缩与 Subagent | **第一轮源码链已追通；动态验证未做** | 报告 42–44 已追 Local Agent sync/async、owner/parent、keepalive、TaskStop、resume、worker adoption；Full/Reactive/Precomputed/Microcompact；compact boundary UUID relink；Agent resume reader 的 hdo/RMt/bdo；Remote Agent Cloud Session 作为独立 remote_agent task 的恢复/取消路径。仍需 multi-compact/torn-tail 与 remote worker 故障验证 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
@@ -53,27 +54,26 @@
 
 ## 5. 下一步任务（按顺序执行）
 
-### A. Claude CLI 的完整执行链（进行中）
+### A. Claude CLI 的完整执行链（第一轮主路径已追通，继续补边界）
 
-历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)、[39：Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)、[40：后台 Bash 与 MCP Task 恢复边界](./40-Claude-CLI后台Bash与MCP任务恢复边界-2026-10-30.md)、[41：取消时序矩阵与结果回收边界](./41-Claude-CLI取消时序矩阵与结果回收边界-2026-10-30.md)、[42：Subagent 生命周期、所有权、停止与恢复](./42-Claude-Subagent生命周期所有权停止与恢复-2026-10-30.md)、[43：上下文压缩与 Subagent 恢复连续性](./43-Claude-CLI上下文压缩与Subagent恢复连续性-2026-10-30.md)。
+历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)、[39：Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)、[40：后台 Bash 与 MCP Task 恢复边界](./40-Claude-CLI后台Bash与MCP任务恢复边界-2026-10-30.md)、[41：取消时序矩阵与结果回收边界](./41-Claude-CLI取消时序矩阵与结果回收边界-2026-10-30.md)、[42：Subagent 生命周期、所有权、停止与恢复](./42-Claude-Subagent生命周期所有权停止与恢复-2026-10-30.md)、[43：上下文压缩与 Subagent 恢复连续性](./43-Claude-CLI上下文压缩与Subagent恢复连续性-2026-10-30.md)、[44：Remote Agent 云端 Session 生命周期与恢复](./44-Claude-Remote-Agent云端Session生命周期与恢复-2026-10-30.md)。
 
-报告 43 完成了 Claude CLI compaction 与 Agent resume 的第一轮源码闭环：
+报告 43 完成 compaction 与 Agent resume reader 闭环；报告 44 完成 Remote Agent cloud task 第一轮：
 
-- 区分 Full compaction、Reactive compaction、Precomputed compaction 和 Microcompact/tool-result clearing；不能把所有 context reduction 统称为 summary。
-- 主 Loop 在每次模型请求前执行 autocompact gate；阈值由有效 context window、output reserve、13k default reserve、blocking override、auto window 与 precompute buffer 共同决定。
-- Reactive compaction 从最近 compact boundary 后开始，以 assistant message ID 分组；tool_use 与后续 tool_result 作为一个轮次 group；Nve 根据 token gap 动态增加 tail 保留轮数。
-- compact_boundary 保存 preserved UUID / anchor / segment；live Agent W7 使用 wPe 重排 preserved tail。
-- Agent resume 的持久化 reader 链现已闭合：iee → KRt → see → GCt.finish → hdo → RMt → bdo。hdo 根据 UUID list/segment 重建 preserved parentUuid 链并 prune 旧 rows；RMt 选 leaf 并走 parentUuid；bdo 以 tool_use_id/sourceToolAssistantUUID 修复 parallel tool_result 关联，且限制相同 agentId/isSidechain。
-- Uve 在压缩后重新注入 agent-scoped file reads、task_status、background Bash、plan、skills、goal/workflow 与 tool/MCP context。
-- Precompute sidecar 只对 main session 持久化/rehydrate；Artifact read version carry 也由 helper 显式限定 main session。Subagent 仍可走 Full/Reactive compaction，但常规 post-turn precompute arm path 不对称。
-- Microcompact 是旧 tool_result eviction；server edit 与 context_hint 本地 fallback 各有自己的门槛和 persistence 行为。
+- Remote Agent Tool 创建独立 Cloud Session；本地 TaskRegistry type=remote_agent，不是 local_agent/W7。
+- nUe 注册 remote task、写 remote-agents metadata sidecar、启动 K3t poller；metadata write 是 best-effort，未 await。
+- K3t 用 dTe 按 cursor 拉取 event，bXe 通过 appendFile 写本地 output；permission relay 只把本地 canUseTool 的 allow 回传远端。
+- MQt/O8o resume 从 sidecar 查 session_status，非 archived session 重建 task record 并重新 poll；这是 reconnect，不是恢复远端 Agent loop。
+- TaskStop 本地先标记 killed，YO 异步 archive，不等待确认；随后停 poller、删 sidecar。
+- metadata 有 runId 用于 notification dedupe，但不保存 lastEventId；恢复时 cursor 从 null 开始。output writer append-only，存在 event replay/重复输出风险。
+- O8o 对 archived session 直接删除 metadata，不拉 terminal event、不补 notification；若远端已完成而本地未消费结果，可能出现结果通知缺口，需动态验证 archived 语义。
 
-**下一轮优先：**
+**CLI 剩余优先：**
 
-1. 补 Remote Agent launch / worker lifecycle：Host protocol、worker crash/reconnect、adoptedPrefill 的产生与验证、Agent loop 未完成时的 reconcile；特别核对 compact boundary metadata 如何跨 worker/transcript link。
-2. 对 transcript reader 做状态矩阵：连续多次 Full/Reactive compaction、preserved UUID 缺失、parentUuid cycle、torn JSONL tail、Storage V5 readRecords fallback；区分源码分支与实际恢复保证。
-3. 核对 Agent metadata / transcript / precompute sidecar 的 Storage V5 backend provenance 与耐久性；不凭 consumer API 推断 fsync。
-4. 完成 Desktop/SDK Host session lifecycle 和 Pi Core 完整源码研究。
+1. 核对 Storage V5 backend provenance 与 sidecar durability；明确 consumer 的 inPlace/atomic publish discipline 到底由哪个 backend 实现，能否证明 fsync/crash behavior。
+2. 对 transcript/remote task reader 做状态矩阵：多次 compact、preserved UUID 缺失、parentUuid cycle、torn JSONL tail、remote event cursor replay、archived terminal result。
+3. 仅在可获得真实服务/API contract 或隔离环境时验证 Cloud Session archive、event cursor 与 remote permission relay；否则保持未知，不推断。
+4. 完成上述 CLI 静态证据后，转入 Desktop/SDK Host session lifecycle 与 Pi Core 完整源码研究。
 5. 统一比较成熟方案后，才提出独立目标架构与备选方案。
 
 ### B. 再研究 Desktop / SDK
@@ -106,15 +106,16 @@
 
 ## 8. 本轮续接标记
 
-本轮新增并扩展 [报告 43：Claude CLI 上下文压缩与 Subagent 恢复连续性](./43-Claude-CLI上下文压缩与Subagent恢复连续性-2026-10-30.md)。
+本轮新增 [报告 44：Claude Remote Agent 云端 Session 生命周期与恢复](./44-Claude-Remote-Agent云端Session生命周期与恢复-2026-10-30.md)。
 
 **本轮已证实：**
 
-- Claude context reduction 至少分 Full、Reactive、Precomputed、Microcompact 四类，分别处理 summary、轮次保留、speculative summary reuse 与 tool_result eviction。
-- Reactive compaction 从最近 compact boundary 后开始，按 assistant message ID 分组；普通 tool_use 与对应 tool_result 保持同组；token gap 驱动保留组数调整。
-- compact boundary 保存 preserved UUID list/segment；Agent live W7 用 wPe 重新排序 tail。
-- Agent resume reader 的完整链为 iee → KRt → see → GCt.finish → hdo → RMt → bdo；hdo relink/prune compact boundary rows，RMt 重建 parentUuid leaf chain，bdo 尝试恢复 parallel tool_result 关联。
-- Uve 为 Agent compaction 重新注入 scoped files/tasks/background Bash/plan/skills/goal/workflow/tool context。
-- Precompute sidecar 与 Artifact read version carry 都有 main-session-only 限制；Subagent 的 Full/Reactive compaction 仍可用。
+- Agent Tool 的 remote branch 创建 Cloud Session；本地 task 类型为 remote_agent，与 local_agent/W7/Agent transcript resume 分离。
+- remote task metadata sidecar 记录 sessionId/runId/task details；nUe 写入后立即启动 K3t，metadata write failure 不阻止当前 task 运行。
+- K3t 用 dTe 按 sequence cursor 拉取 event，通过 append-only task output writer 写入本地 output file；permission relay 仅转发本地 canUseTool 的 allow。
+- MQt/O8o 在 session resume 时查询 remote session status，重建 task record 并重启 poller；不是重新创建 Cloud Session。
+- RemoteAgentTask.kill 先更新本地 killed 状态，再异步 archive Cloud Session，不等待确认；随后停止 poller并删除 metadata。
+- runId 用于通知去重，不是 event cursor；sidecar 未持久化 lastEventId，恢复从 null cursor 开始，存在历史 event 重放/重复 output 风险。
+- O8o 对 archived session 直接删 metadata 并跳过，不补发 terminal result；远端 archived 的确切语义未知。
 
-**下一次新对话第一任务：** 研究 Remote Agent launch / worker lifecycle：Host protocol、worker crash/reconnect、adoptedPrefill 来源与验证、Agent loop 未完成时的 reconcile；追 compact boundary metadata 在 worker handoff/transcript linking 中的连续性。报告 33–43 都是静态源码研究，不是最终架构裁决；不允许开始开发。
+**下一次新对话第一任务：** 核对 Storage V5 backend provenance 与 sidecar durability，尤其 inPlace/atomic publish discipline 的实际实现和 crash guarantee；然后完成多次 compaction/torn-tail/remote event replay 状态矩阵，再进入 Desktop/SDK Host session lifecycle。报告 33–44 都是静态源码研究，不是最终架构裁决；不允许开始开发。
