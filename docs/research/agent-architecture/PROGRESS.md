@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30 08:41（+08:00）  
+> 最后更新：2026-10-30（本轮研究）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -29,7 +29,8 @@
 | 报告 35 | remote ToolHost 路由、权限 gate、call state、reconnect reconcile 与 delivery_unknown | 静态源码；未运行真实 Host；ledger 跨进程持久化保证未知 |
 | 报告 36 | transcript 写入失败的 Promise/健康状态语义；stream fallback/refusal/model fallback 的消息撤回与工具停止机制 | 静态源码；Storage V5 backend 保证、错误恢复全路径及已产生副作用尚未动态验证 |
 | 报告 37 | Storage V5 reader 的 read→readRecords fallback、torn tail/无效 JSONL 容错；writerHealth 降级/恢复和 session UUID dedupe 依赖 | 直接复核发布版 JS；尚无 V5 backend 物理持久化或崩溃注入证据 |
-| 报告 38 | fallback abort → session control_cancel_request → Host tool pipeline；call_id/request_id/worker_epoch；Host call ledger、disowned tombstone、outcome query 与 correction | 静态源码；发现 direct cancelled 分支不进入 caller m_e given-up 队列的风险点；Shell/MCP 实际取消与副作用尚未动态验证 |
+| 报告 38 | fallback abort → session control_cancel_request → Host tool pipeline；call_id/request_id/worker_epoch；Host call ledger、disowned tombstone、outcome query 与 correction | 静态源码；发现 direct cancelled 分支不进入 caller m_e given-up 队列的风险点 |
+| 报告 39 | Bash foreground 进程终止、background listener detach；MCP notifications/cancelled、server handler signal、tasks/cancel 与错误副作用分类 | 静态源码；未运行真实 Shell/MCP server；后台 task 恢复与第三方 MCP 是否响应取消仍未知 |
 
 ## 4. 研究覆盖率
 
@@ -37,10 +38,10 @@
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
 | Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38 已补 remote cancel / call ledger / late correction；仍需核验 Storage V5 backend、Shell/MCP 实际取消及完整故障状态机 |
-| Claude CLI 权限、并发和失败恢复 | **部分核验，关键取消路径已接通** | 报告 38 已接通 fallback abort 到远端 Host，并追 call ledger / outcome query；direct cancelled → no open → caller forget 的不对称是待动态验证风险；继续查 Shell/MCP executor 与副作用 |
+| Claude CLI 权限、并发和失败恢复 | **部分核验，Shell/MCP 取消链已追到 executor/协议层** | 报告 38/39 已确认 Bash foreground SIGTERM→约 1.5s 后 SIGKILL 尝试、background 移除 abort listener；MCP 使用 notifications/cancelled，Task 使用 tasks/cancel；第三方实际停止、副作用与 caller late-query 缺口仍需核验 |
 | Claude CLI 上下文压缩与 Subagent | **初步定位，未完成** | 已确认每轮前 autocompact 与 prompt-too-long reactive 路径；subagent 父子状态和完整压缩转移待查 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
-| MCP、宿主工具桥接和安全边界 | 未完成 | 确认调用链、审批点和信任边界 |
+| MCP、宿主工具桥接和安全边界 | **取消协议已部分核验** | 报告 39 已追 Client notifications/cancelled → Server handler AbortSignal，以及 tasks/cancel；继续核对第三方 server、task executor 和后台任务生命周期 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
@@ -50,20 +51,25 @@
 
 ### A. Claude CLI 的完整执行链（进行中）
 
-历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)。
+历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)、[39：Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)。
 
-报告 38 已将 fallback per-tool AbortSignal → session control_cancel_request → RemoteSessionManager.retireServedRequest → serveSessionToolCall/s8r → Host 执行 controller 接通。Host 侧以 call_id 账本处理重复请求、跨 worker epoch retry join、outcome_of 和 disowned tombstone；caller 侧 m_e 会对 open 状态排队 query，并通过 tool_hosts_correction 注入后续模型上下文。
+报告 39 新增确认：
 
-**新发现的待验证风险：** 直接 transport cancelled 被 dRe 映射为 interrupted（无 open），Lr 随即 forget(callId)；而 Host 在 signal aborted 时抑制 response。相比 dropped/timed_out 的给定未知结果路径，该分支可能没有 caller-side late-outcome query。abandonAttempt 还计算 startedToolUseIds，但该调用点只使用 removes。此为静态源码控制流事实及风险推断，不是已复现缺陷。
+- Bash foreground 的 AbortSignal 到达 LFe；spawn 前已 abort 则不启动进程；spawn 后进入 kill；POSIX 尝试 SIGTERM，约 1.5 秒后尝试 process-group SIGKILL，Windows 使用 taskkill /T /F。
+- Bash background() 会移除原 abort listener，后台命令脱离原 per-tool controller；命令完成后也会移除 listener。foreground kill 不回滚已提交副作用。
+- MCP Client Protocol.request 发送 notifications/cancelled；SDK Server 将其转为 RequestHandlerExtra.signal abort。第三方 server 是否尊重 signal 未验证。
+- MCP Task 取得 task handle 后会 best-effort 发 tasks/cancel；SDK handler 更新 task status、清空 task queue，不足以证明底层执行进程停止。
+- Claude MCP adapter 对 timeout/connection/protocol error 提示“可能已运行并有副作用”，而不是一概声称未执行。
 
 **下一轮优先：**
 
-1. 追 Bash/Read/Write/Edit 的 Host executor：AbortSignal 如何进入子进程/进程组、终止策略、超时、PostToolUse hook 与已提交副作用；区分运行中取消和命令已完成但 response 被取消。
-2. 追 MCP passthrough 的 AbortSignal 传递、client request cancellation 和 server 是否真正取消执行。
-3. 建立 fallback 取消时序矩阵：send 前、request queued、Host receive、approval、tool start、tool finish、response send 前；每阶段列 caller/Host state、journal、可恢复信息。
-4. 核对 direct-cancel 路径是否存在未由 m_e 管理的其他 query/notice；动态行为暂未验证。
-5. 之后继续 Subagent、context compaction、Desktop/SDK 与 Pi 完整源码研究，再建立统一比较表。
+1. 追 background Bash task registry、output retrieval 和 task ID 在 fallback/turn abort/session restart 后的生命周期；核对后台进程是否可重新发现、停止和取回结果。
+2. 追 MCP task registry、driveAbort、polling、tasks/cancel 与 attempt abandonment 的关系；明确 task status cancelled 与真实 executor 停止的区别。
+3. 完成取消时序矩阵：Bash spawn 前/后、background 后；MCP request 发送/handler 开始/task handle 返回/task 完成/response 丢失；每个阶段列 caller、Host/server、journal、可恢复状态。
+4. 继续核对 direct-cancel 是否存在其他 caller-side notice/query；动态行为未验证。
+5. 然后研究 Subagent、context compaction、Desktop/SDK 与 Pi 完整源码，最后统一比较并提出独立目标架构。
 
+### B. 再研究 Desktop / SDK
 ### B. 再研究 Desktop / SDK
 ### B. 再研究 Desktop / SDK
 
@@ -95,14 +101,14 @@
 
 ## 8. 本轮续接标记
 
-本轮核对 PR #49 的最新进度和评论，并继续直接检查 CLI 2.1.304 发布版 JS，新增 [报告 38：远程工具取消、执行账本与迟到结果收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)。
+本轮继续检查 CLI 2.1.304 的 Bash runner 与 MCP SDK/adapters，新增 [报告 39：Claude Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)。
 
 **本轮已证实：**
 
-- fallback abort 可通过 session protocol 发送 control_cancel_request，Host RemoteSessionManager 撤销 request 并将 signal 传入实际 serving pipeline。
-- Host call ledger 区分 call_id（跨 legs/redeliveries/query）与 request_id（per-leg），并有内存结果缓存、跨 worker epoch retry join、独立 summary log、outcome_of 和 disowned tombstone。
-- Host 在取消时可报告 ranNothing；若已获准进入执行，取消 outcome 可能部分运行。
-- Caller 的 dropped/timed_out 等 open 状态会进入 m_e query/correction；但直接 cancelled 映射为 interrupted 且无 open，Lr 会 forget call_id。Host wrapper 同时会在 signal aborted 时抑制 response。这是需动态验证的 outcome-accounting 风险。
-- Host summary log 为异步、有限保留的 best-effort journal；不含完整结果 body，不能等同于事务性执行日志。
+- Bash foreground signal 到达 LFe；spawn 前 abort 返回“Command aborted before execution”；spawn 后尝试 SIGTERM，约 1.5 秒后对 process group 尝试 SIGKILL；Windows 使用 taskkill /T /F。
+- Bash background() 会移除原 AbortSignal listener；后台任务不再受该 per-tool signal 管理。完成的命令同样移除 listener。
+- MCP 普通 call 通过 notifications/cancelled 传 requestId/reason，SDK Server 将它映射为 request handler AbortController.abort。
+- MCP Task 在拿到 task handle 后会 best-effort 发送 tasks/cancel；SDK 默认 handler 更新 task status 并清队列，但不证明底层 task process 已停止。
+- Claude MCP adapter 对 timeout/lost connection/protocol failure 会提示可能已运行并产生副作用；明确 auth/consent refusal 才报告 did not run。
 
-**下一次新对话第一任务：** 追 Bash/本地工具与 MCP passthrough 的 AbortSignal → 子进程/服务器执行 → hook 收尾/副作用路径，并按取消发生时序验证报告 38 的 caller/Host 状态差异。报告 33–38 均为静态源码研究，不是最终架构裁决；不允许开始开发。
+**下一次新对话第一任务：** 追 background Bash task registry 和 MCP task registry 在 fallback、turn abort、session restart 后的恢复/停止/结果取回；随后完成取消时序矩阵。报告 33–39 均为静态源码研究，不是最终架构裁决；不允许开始开发。
