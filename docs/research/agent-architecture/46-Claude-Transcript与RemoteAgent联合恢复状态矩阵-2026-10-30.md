@@ -161,7 +161,7 @@ Sdo 的源码条件：
 - 时间差不超过 5,000 ms；
 - 选择时间上最近的候选。
 
-若找不到候选，RMt 返回部分链并记录 cycle 错误。该机制是时间启发式，不是 parent lineage 的权威证明。
+若找不到候选，RMt 返回部分链；源码只有在遍历时再次访问到当前节点才明确记录 parent-cycle 错误，missing-parent 且 fallback 无候选不等于一定产生 cycle telemetry。该机制是时间启发式，不是 parent lineage 的权威证明。
 
 值得注意：Sdo 没有显式比较 agentId。如果 transcript Map 同时包含多个 Agent 的 sidechain rows，理论上可能选到其他 Agent 的候选；KRt 最终又按目标 agentId 过滤，因此可能留下更短的恢复链。这是条件性风险，输入 Map 是否包含多个 Agent 候选需动态验证。
 
