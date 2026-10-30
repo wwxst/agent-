@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-29（本轮研究）  
+> 最后更新：2026-10-30 08:41（+08:00）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -29,14 +29,15 @@
 | 报告 35 | remote ToolHost 路由、权限 gate、call state、reconnect reconcile 与 delivery_unknown | 静态源码；未运行真实 Host；ledger 跨进程持久化保证未知 |
 | 报告 36 | transcript 写入失败的 Promise/健康状态语义；stream fallback/refusal/model fallback 的消息撤回与工具停止机制 | 静态源码；Storage V5 backend 保证、错误恢复全路径及已产生副作用尚未动态验证 |
 | 报告 37 | Storage V5 reader 的 read→readRecords fallback、torn tail/无效 JSONL 容错；writerHealth 降级/恢复和 session UUID dedupe 依赖 | 直接复核发布版 JS；尚无 V5 backend 物理持久化或崩溃注入证据 |
+| 报告 38 | fallback abort → session control_cancel_request → Host tool pipeline；call_id/request_id/worker_epoch；Host call ledger、disowned tombstone、outcome query 与 correction | 静态源码；发现 direct cancelled 分支不进入 caller m_e given-up 队列的风险点；Shell/MCP 实际取消与副作用尚未动态验证 |
 
 ## 4. 研究覆盖率
 
 | 子系统 | 状态 | 下一步 |
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
-| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；仍需核验 Storage V5 backend、MCP Host 和完整故障状态机 |
-| Claude CLI 权限、并发和失败恢复 | **部分核验** | 已确认并发调度、权限路由、remote Host call-state/reconcile/delivery_unknown；报告 36 又核验了 abandonAttempt/tombstone/abort 分层；仍缺本地工具与各 Host 的实际副作用恢复对照 |
+| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38 已补 remote cancel / call ledger / late correction；仍需核验 Storage V5 backend、Shell/MCP 实际取消及完整故障状态机 |
+| Claude CLI 权限、并发和失败恢复 | **部分核验，关键取消路径已接通** | 报告 38 已接通 fallback abort 到远端 Host，并追 call ledger / outcome query；direct cancelled → no open → caller forget 的不对称是待动态验证风险；继续查 Shell/MCP executor 与副作用 |
 | Claude CLI 上下文压缩与 Subagent | **初步定位，未完成** | 已确认每轮前 autocompact 与 prompt-too-long reactive 路径；subagent 父子状态和完整压缩转移待查 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
 | MCP、宿主工具桥接和安全边界 | 未完成 | 确认调用链、审批点和信任边界 |
@@ -49,19 +50,21 @@
 
 ### A. Claude CLI 的完整执行链（进行中）
 
-历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)。
+历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)。
 
-报告 37 的新增确认：writerHealth `qb` 记录连续失败及分类阈值、`nRt` 在后续成功 append 后清除对应文件降级；reader `see` 能把某些 V5 read 错误转为 `PRt/readRecords` 分页尝试；支持 torn-tail 标记和跳过部分不能解析的 JSONL 行。文件可读、writer 状态清除都**不是历史完整性证明**。V5 backend 物理持久化保证仍未知。
+报告 38 已将 fallback per-tool AbortSignal → session control_cancel_request → RemoteSessionManager.retireServedRequest → serveSessionToolCall/s8r → Host 执行 controller 接通。Host 侧以 call_id 账本处理重复请求、跨 worker epoch retry join、outcome_of 和 disowned tombstone；caller 侧 m_e 会对 open 状态排队 query，并通过 tool_hosts_correction 注入后续模型上下文。
+
+**新发现的待验证风险：** 直接 transport cancelled 被 dRe 映射为 interrupted（无 open），Lr 随即 forget(callId)；而 Host 在 signal aborted 时抑制 response。相比 dropped/timed_out 的给定未知结果路径，该分支可能没有 caller-side late-outcome query。abandonAttempt 还计算 startedToolUseIds，但该调用点只使用 removes。此为静态源码控制流事实及风险推断，不是已复现缺陷。
 
 **下一轮优先：**
 
-1. 继续定位 Storage V5 后端实际实现/来源。只找到 consumer 接口时，明确未知边界，不把 Promise resolve / readRecords 读成功当作 fsync 或 Exactly-once 证据。
-2. 端到端追踪 `abandonAttempt → discardAndAbortInFlight → hosts.runToolUse` 与 remote Host call-state、delivery_unknown、late answer 的联动，按 started/queued/completed 和本地/远端分别画状态转换。
-3. 复核本地 Shell 与 MCP 的权限、取消、并发和副作用恢复边界。
-4. 研究 Subagent、context compaction、Desktop/SDK 与 Pi 的完整机制，再构造独立的新架构备选方案。
+1. 追 Bash/Read/Write/Edit 的 Host executor：AbortSignal 如何进入子进程/进程组、终止策略、超时、PostToolUse hook 与已提交副作用；区分运行中取消和命令已完成但 response 被取消。
+2. 追 MCP passthrough 的 AbortSignal 传递、client request cancellation 和 server 是否真正取消执行。
+3. 建立 fallback 取消时序矩阵：send 前、request queued、Host receive、approval、tool start、tool finish、response send 前；每阶段列 caller/Host state、journal、可恢复信息。
+4. 核对 direct-cancel 路径是否存在未由 m_e 管理的其他 query/notice；动态行为暂未验证。
+5. 之后继续 Subagent、context compaction、Desktop/SDK 与 Pi 完整源码研究，再建立统一比较表。
 
-每个结论标明版本、文件、符号/偏移、静态事实/推断/未知；研究完成前不开发。
-
+### B. 再研究 Desktop / SDK
 ### B. 再研究 Desktop / SDK
 
 从 Desktop 如何创建宿主进程开始，跟踪双向协议、request correlation、Session/Process 生命周期、权限 broker、MCP 桥接、取消与关闭语义。
@@ -92,14 +95,14 @@
 
 ## 8. 本轮续接标记
 
-本轮已读取 PR #49 的旧进度、最新研究评论；直接检查 CLI 2.1.304、Desktop SDK wrapper 0.3.304 的源码样本，新增 [报告 37](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)。
+本轮核对 PR #49 的最新进度和评论，并继续直接检查 CLI 2.1.304 发布版 JS，新增 [报告 38：远程工具取消、执行账本与迟到结果收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)。
 
-**新的源码结论：**
+**本轮已证实：**
 
-- `qb` 仅在特定 source/路径/错误及阈值条件下设置 degradedStore；`nRt` 在新 append 成功时可清除降级，这不等于重建了旧记录。
-- `see` 可尝试 `readRecords` 分页恢复某些 V5 read 失败，允许部分损坏行被跳过；reader 的完成不证明 transcript 无缺口。
-- `sessionMessages` 捕获读失败后仍可能返回当前可用 UUID 集合；`qk` dedupe 依赖此集合，不能由此推断 crash-safe exactly-once。
-- 在已检查的 source-only JS 中尚未追到 V5 后端物理写入保证；**仍未知**。
-- 没有执行样本、没有故障注入、没有批准架构/开发。
+- fallback abort 可通过 session protocol 发送 control_cancel_request，Host RemoteSessionManager 撤销 request 并将 signal 传入实际 serving pipeline。
+- Host call ledger 区分 call_id（跨 legs/redeliveries/query）与 request_id（per-leg），并有内存结果缓存、跨 worker epoch retry join、独立 summary log、outcome_of 和 disowned tombstone。
+- Host 在取消时可报告 ranNothing；若已获准进入执行，取消 outcome 可能部分运行。
+- Caller 的 dropped/timed_out 等 open 状态会进入 m_e query/correction；但直接 cancelled 映射为 interrupted 且无 open，Lr 会 forget call_id。Host wrapper 同时会在 signal aborted 时抑制 response。这是需动态验证的 outcome-accounting 风险。
+- Host summary log 为异步、有限保留的 best-effort journal；不含完整结果 body，不能等同于事务性执行日志。
 
-**下一次第一任务：** 追 `abandonAttempt / discardAndAbortInFlight` 与远端 Host ledger/late-result 的端到端交互；同时继续核对 V5 backend 的真实实现出处。不要从旧 Kernel 的实现反推架构结论。
+**下一次新对话第一任务：** 追 Bash/本地工具与 MCP passthrough 的 AbortSignal → 子进程/服务器执行 → hook 收尾/副作用路径，并按取消发生时序验证报告 38 的 caller/Host 状态差异。报告 33–38 均为静态源码研究，不是最终架构裁决；不允许开始开发。
