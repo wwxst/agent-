@@ -62,6 +62,8 @@
 - [报告 54：Chord 1.4.0 Host / Object / RPC / ReplicatedState 与热更新协议](./54-Chord-1.4.0HostObjectRPC与ReplicatedState热更新协议复核-2026-10-30.md)
 - [报告 55：Pi Durable Storage Adapters 事务原子性、恢复与耐久性边界](./55-Pi-Durable-StorageAdapters事务原子性恢复与耐久边界-2026-10-30.md)
 - [报告 56：Chord HostManager 进程锁、重启与子 Host 生命周期](./56-Chord-HostManager进程锁重启与子Host生命周期-2026-10-30.md)
+- [报告 57：Pi Durable CompactionTask 上下文边界、重放与失效风险](./57-Pi-Durable-CompactionTask上下文边界重放与失效风险-2026-10-30.md)
+- [报告 58：Pi Coding Agent 产品组合、Core、Session、MCP、权限与 RPC](./58-Pi-CodingAgent产品组合CoreSessionMCP权限与RPC-2026-10-30.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
