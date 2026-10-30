@@ -20,7 +20,7 @@ Subagent 使用同一套 compaction core（rkr → tkr / pUn → Nve / Gvr → U
 - preCompactDiscoveredTools 可按 Agent 历史收集；
 - preCompactArtifactReadVersions 的写入 helper 明确跳过 agentId !== undefined，这是主 Session Artifact 版本追踪，不是通用文件版本；
 - precompact.json sidecar schema 和 rehydrate 明确限定 agentKey === "main"；常规 Agent post-turn arm path 对 subagent 只记录 arm-gate event，不调用主路径的 skr。
-- Agent transcript resume 读取历史 transcript/metadata 并启动新 W7 loop；它不是恢复原来的 stream、Promise 或 controller。
+- Agent transcript resume 读取历史 transcript/metadata；reader 先按 compact boundary 做 preserved UUID relink/prune，再按 parentUuid 选择 leaf、重建链并修复 tool_result，最后启动新 W7 loop；它不是恢复原来的 stream、Promise 或 controller。
 
 ## 1. Compaction 在主 Loop 中的位置
 
@@ -252,6 +252,40 @@ Uve 接收 agentId 并使用对应的：
 
 其中 Plr 注入其他 Agent task 状态；Mlr 只注入同一 agentId 的 running background Bash。父 Agent 与子 Agent 不共享一个无区分的 task 状态附件。
 
+### 5.4 Resume reader 会重建 compact boundary 的 parentUuid 图
+
+报告 42 已追到 Agent resume 的 Gn → iee，但当时没有闭合 transcript reader 对 compact boundary 的恢复处理。本轮进一步追到：
+
+iee（chunk-4b60tdnk.js @504,071）
+→ KRt（@504,720）
+→ see（@488,032）
+→ GCt.finish（@484,997）
+→ hdo（@418,403）
+→ RMt（@420,397）
+→ bdo（@423,822）。
+
+具体行为：
+
+1. iee 等待 Agent transcript append queue flush（除非调用方声明 alreadyWaited），然后调用 KRt；若本地 transcript 不存在/不可读，可走 internal reader 的 on-demand hydration，再重试。
+2. KRt 调用 see 读取 Storage V5 或 JSONL。see 的 GCt.finish 会先执行 reader row normalization / parent repair，再执行 hdo(n)；因此 compaction boundary replay 是 transcript reader 的正式完成步骤，不只是 Agent W7 收到新消息时的内存逻辑。
+3. hdo 找到最新 compact boundary，以及最近一个带 preservedMessages / preservedSegment 的 boundary：
+   - 优先使用 preservedMessages UUID list；
+   - 若只有 preservedSegment，则从 tailUuid 沿 parentUuid 反向走到 headUuid，重建 UUID list；
+   - 要求 preserved UUID 全部存在；若缺失，发出 tengu_relink_walk_broken 并提前返回，不继续破坏性 prune；
+   - 将 preserved rows 的 parentUuid 串接到 anchorUuid（该 anchor 是 summary message UUID），并把 anchor 的其他 children 重挂到 preserved tail；
+   - 对保留的 assistant rows 将历史 usage 置零；
+   - 删除最新 compact boundary 之前不属于 preserved set 的 rows，并把这些已删除 rows 的直接 user/assistant children 重挂到 preserved tail。
+4. 若最新 compact boundary 是 full compact（没有 preserved tail），它不重新附加 tail；compact boundary 作为新的 active branch root，旧 rows 不在随后 parentUuid leaf chain 中。reader Map 的 pruning/relink 不等于对原 JSONL 文件做物理截断。
+5. KRt 从该 Agent 的 sidechain rows 中选择最新 leaf（排除 compact_boundary），再由 RMt 沿 parentUuid 向上重建 conversation chain。
+6. RMt 遇到缺失 parentUuid / parent row 时，Sdo 可在相同 isSidechain 的 rows 中寻找 5 秒内最近的前序 timestamp 作为 fallback；发现 cycle 会记录错误并返回 partial chain。
+7. RMt 的 bdo 还会修复 parallel tool_result 关联：优先利用 parentUuid、sourceToolAssistantUUID 与 tool_use_id 找到正确 assistant message；要求 isSidechain 与 agentId 一致，避免把其他 Agent 的 tool result 接到当前 Agent；重建后的 tool_result 按其原始时间/assistant block 顺序插入。
+
+因此恢复时存在两层互补机制：
+- live Agent W7 stream：wPe 在 boundary/summary 到达时把 preserved rows 重排到 summary 后；
+- durable transcript reload：see → hdo → RMt 在重新加载 JSONL 时恢复 parentUuid 图，再通过 bdo 修复工具结果关联。
+
+这闭合了报告 42/本报告此前的一个未知项：**Agent resume 并非把原始 transcript rows 原样交给新 W7；reader 会先执行 compact-boundary-aware normalization 与 lineage reconstruction。** 但仍未动态验证多次 compaction、UUID 缺失、torn tail 与 worker handoff 的组合故障。
+
 ### 5.3 Artifact version carry 是 main-session 专项
 
 fQ（@1,782,147）有显式 guard：agentId !== undefined 时直接 return；只有 main session 且 MWe() feature 开启时，才将 preCompactArtifactReadVersions 写入 compact boundary。
@@ -309,7 +343,7 @@ chunk-wa7fj3rd.js 的 createContextHintController：
 
 ### 未知
 1. 本轮没有运行 compaction / prompt-too-long / Agent resume 的动态测试；算法边界来自静态 JS。
-2. Agent resume 首次加载 transcript 时，所有 compact boundary / preserved UUID replay 的完整 reader-normalization 链仍需单独追到 storage reader。
+2. 已追到 Agent resume 的 iee → KRt → see → GCt.finish → hdo → RMt → bdo，确认 reader 会按 compact boundary 重建 parentUuid 图并修复 tool_result 关联；多次 compaction 与 torn-tail 的动态组合行为仍未知。
 3. Uve 清空 readFileState 后若 full compact attachment builder 失败，状态恢复是否有其他兜底；reactive path 有 nar fallback，full path直接 await，需故障注入。
 4. Storage V5 sidecar 的真实原子性、fsync 与 crash durability 未验证。
 5. Remote Agent/worker handoff 时 compact boundary metadata 的跨 Host 传输、旧 worker transcript linking 与新 W7 resume 的完整端到端链尚未动态验证。
@@ -332,7 +366,7 @@ chunk-wa7fj3rd.js 的 createContextHintController：
 | File | SHA-256 | Key anchors (0-based character offset) |
 |---|---|---|
 | chunk-smbjjyps.js | 1e28512664e9ef8818c84e5c4f6b19ee48c8f0c832e6673f29ad1a7f0872a46d | su/iu main loop + pre-request autocompact @137,000–147,000; post-query precompute arm @147,174/@182,560; prompt-too-long → Mho/pUn @191,223–192,915 |
-| chunk-4b60tdnk.js | c0df8641329d42ecea033337ce51bf9b44986b4b82b858ac6c6ef1ba851404bb | artifact carry fQ/N9t @1,782,147/@1,782,830; session.compact hook cfo @1,479,567; tool grouping Qdt/ZK @2,344,343/@2,344,076; summary XJ/Yir @2,363,235/@2,367,144; Nve/Eho/Gvr @2,371,130/@2,383,085/@2,385,219; preserved UUID fXe/wPe @2,491,305/@2,391,410; full tkr @2,492,295; Uve/Clr/Plr/Mlr @2,512,911/@2,514,492/@2,516,626/@2,517,145; threshold/rkr @1,484,360/@2,522,180; precompute BIt/skr/Mho @2,535,871/@2,539,966/@2,547,487; compact boundary n2 @5,021,993 |
+| chunk-4b60tdnk.js | c0df8641329d42ecea033337ce51bf9b44986b4b82b858ac6c6ef1ba851404bb | transcript reader see/GCt.finish @488,032/@484,997; compact relink hdo/ydo @418,403/@419,707; Agent chain RMt/bdo/Sdo @420,397/@423,822/@422,580; iee/KRt @504,071/@504,720; artifact carry fQ/N9t @1,782,147/@1,782,830; session.compact hook cfo @1,479,567; tool grouping Qdt/ZK @2,344,343/@2,344,076; summary XJ/Yir @2,363,235/@2,367,144; Nve/Eho/Gvr @2,371,130/@2,383,085/@2,385,219; preserved UUID fXe/wPe @2,491,305/@2,391,410; full tkr @2,492,295; Uve/Clr/Plr/Mlr @2,512,911/@2,514,492/@2,516,626/@2,517,145; threshold/rkr @1,484,360/@2,522,180; precompute BIt/skr/Mho @2,535,871/@2,539,966/@2,547,487; compact boundary n2 @5,021,993 |
 | chunk-ypk19ctb.js | 0b8728db10fddd3f2a922ff1387c4f0118bdf5a62a1f07300e50d2bf3c586960 | parent-turn forwarding excludes compact summaries / transcript-only messages in zf @508,500 |
 | chunk-q43h57v8.js | cdc33a0650592fab296e51dda091eb8c46b7d542e86f77c49a6963b0da85c2e0 | precompute coverage reuse validator r2r @49,712; agentKey mapping PLe @49,571 |
 | chunk-k3djx6vq.js | 1b4dc9236bf90b77cd9d9d13aa82f67c6a792920e9253d92ef402a2f6dd615fe | Agent W7 @149,927; stream row transcript + wPe @108,928; compact boundary wire metadata mapping @38,000 |
