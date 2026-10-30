@@ -270,7 +270,7 @@ N9t（@1,782,830）恢复 Artifact version/path pin 状态时：
 ### 6.1 Server context-management edit
 
 chunk-xnwgde04.js：
-- Nn @141,? 配置 minIdleSeconds:3900（65 分钟）、keepToolUses:12、clearAtLeastTokens:20,000、triggerToolUsesBelowCount:3、minTriggerToolUses:27。
+- Nn @142,091 配置 minIdleSeconds:3900（65 分钟）、keepToolUses:12、clearAtLeastTokens:20,000、triggerToolUsesBelowCount:3、minTriggerToolUses:27；触发数是在 clearable count 中扣除 3 后计算。
 - xjs @142,340 规划 clear_tool_uses_20250919 edit；要求存在 idle gap、足够多可清理 tool results、token 节省量达标，并返回 keep.tool_uses=12、clear_at_least.input_tokens=20,000 与 exclude_tools。
 - pr @143,198 计算 idle gap、clearable tool uses、server 已清除数量、被排除的 tool names 和预计 token 节省。
 - Pjs @145,362 读取 API response 的 context_management.applied_edits，记录 server 实际清理的 tool uses / input tokens，并维护 idle tracking。
@@ -338,7 +338,7 @@ chunk-wa7fj3rd.js 的 createContextHintController：
 | chunk-k3djx6vq.js | 1b4dc9236bf90b77cd9d9d13aa82f67c6a792920e9253d92ef402a2f6dd615fe | Agent W7 @149,927; stream row transcript + wPe @108,928; compact boundary wire metadata mapping @38,000 |
 | chunk-xqhs6qqf.js | 2a164dbfa5570beb2e0c7af0b386ed519d0c74a51e98fe2d896819cb82ad60cf | Agent resume Gn @10,327 |
 | chunk-xnwgde04.js | 5c144ee781413113ed1e967e1381eaab1f5e0f10124508c656668b3b3c40392c | local microcompact WMo/Ajs @140,217/@141,192; server edit planner xjs @142,340; idle analyzer pr @143,198; applied edit tracker Pjs @145,362 |
-| chunk-wa7fj3rd.js | a8d940ce256e6ada34a7d6232c91b627a99b046350fba12b73f1c433a4f89722 | ContextHintController export/createContextHintController @17,082 |
+| chunk-wa7fj3rd.js | a8d940ce256e6ada34a7d6232c91b627a99b046350fba12b73f1c433a4f89722 | ContextHintController implementation G @17,082（module export @18,024） |
 | chunk-8ztr1bzj.js | c1a706e2524cb80b508f811d528454c70d462b1655dd0124de4d3d7ca96ee4a9 | transcript UI uses Cbo to include transcript-only messages only in transcript view @176,945 |
 | chunk-jf276d7h.js | 8804cf5160765e2d9ea07b4c7adc6b80d9b511116d8accbdb35104d02613b43d | Artifact feature gate MWe @20,585 |
 
