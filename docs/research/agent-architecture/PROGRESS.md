@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 51：custom3p-mcp URL Elicitation）  
+> 最后更新：2026-10-30（报告 52：Pi Agent Core 1.4.0 Loop 与工具调度）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -43,6 +43,7 @@
 | 报告 49 | Local spawn vs SSH custom spawn；Turn interrupt / Session stop / Query close / OS process exit；WarmLifecycle / Idle pause；app quit；Local / SSH Waiting Input 恢复与 quit auto-resume | 静态源码；native process job 语义、真实 process exit、queue 对账歧义与故障恢复仍需动态验证 |
 | 报告 50 | SDK canUseTool / onUserDialog / Hooks 注入；hook_callback generation、timeout、AbortSignal、cancel 与 late response；CLI reinitialize pending request redelivery；PermissionBroker / UserDialogBroker 等待语义；renderer snapshot recovery 边界 | 静态源码；hosted renderer reload 行为、MCP elicitation、native / helper 语义与动态故障验证仍未知 |
 | 报告 51 | custom3p-mcp HTTP/SSE utility host 与 stdio 路径；URL elicitation consent、MessagePort seq / elicitationId、complete notification、port drain、host shutdown | 静态源码；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 行为未动态验证 |
+| 报告 52 | Pi Agent Core v1.4.0 release commit pin；旧动态实验 source blob parity；Agent / low-level Loop；event barrier；steering/follow-up；context transform；parallel tool ordering；abort/error/truncation；Core vs Durable package boundary | Core 源码静态复核 + 既有 fake-based 11/11 实验；npm tarball dist 字节级校验、真实 Provider/Host/DB/crash 未做；pi-durable / Chord / coding-agent 待研究 |
 
 ## 4. 研究覆盖率
 
@@ -54,7 +55,7 @@
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
-| Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
+| Pi Agent Core / Durable / Chord | **Core v1.4.0 首轮静态研究完成；Durable / Chord / coding-agent 未完成** | 报告 52 已 pin release commit 4a080252、核对核心源文件与旧动态实验 source blob 一致，并追 Agent/Loop、事件屏障、队列、工具并发、abort/error/truncation。下一步独立研究 pi-durable Task/Harness/Storage/Recovery、Chord commit/outbox/storage，再研究 coding-agent 组合层 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
 | 用户确认 | 未开始 | 完整方案交付后等待明确批准 |
@@ -88,8 +89,8 @@
 
 1. 仅在可获得真实 Storage V5 provider、Cloud Session API contract 或隔离环境时，验证 V5 durability、Cloud event cursor、archive acknowledgement、permission relay 与真实副作用；否则维持未知，不以 mock 代替服务端事实。
 2. 报告 46 已将多次 Full/Reactive compact、preserved UUID / anchor 缺失、parentUuid cycle、JSONL torn tail、V5 readRecords fallback、Remote Agent null cursor / metadata loss / archived terminal result 放入统一状态矩阵；矩阵中的所有 crash 结果仍需动态测试。
-3. Desktop/SDK 已完成报告 47–49 的主要生命周期静态追踪；继续闭环 canUseTool / Hooks / hook_callback 的全 callback 类型、abort/timeout/cleanup，以及 renderer reload / pending request replay。native process job 和 SSH helper server-side 语义若无法取得，保留未知。
-4. 随后固定 Pi Core 上游 commit 与实际发布包，核对源码 / 包一致性后逐模块研究 loop、event、tool、context、session、extension、cancel 与错误恢复。
+3. Desktop/SDK 报告 47–51 已覆盖可读发布版主要宿主、callback、MCP 生命周期。hosted renderer reload、native process job、SSH helper server-side、MCP reconnect / elicitation recovery 与真实 crash 行为保留为未知；不再把不可读服务端路径当作当前可推进源码任务。
+4. Pi Core v1.4.0 首轮基线与 Loop 研究见报告 52。下一步先研究 pi-durable / Chord 的 Task、Harness、Storage、commit、recovery，再研究 pi-coding-agent 组合层。
 5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
 
 ### B. Desktop / SDK（报告 47–51：可读发布版源码主要生命周期追踪完成）
@@ -100,9 +101,20 @@
 
 **剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 不在 source-only package；native process job 与 SSH helper/daemon server-side 语义不可从客户端 JS 推断；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 未动态验证。没有额外证据时保持未知，不虚构服务端保证。
 
-### C. 再研究 Pi Core
+### C. Pi Agent Core 与 Durable / Chord（报告 52 完成 Core 首轮）
 
-阅读固定上游源码和实际使用的发布包；分别记录 loop、事件契约、工具、扩展机制、流式、并发、取消、上下文和错误处理。发布包与源码未核验一致前，不混用两者结论。
+[报告 52：Pi Agent Core 1.4.0 发布基线、Loop 与工具调度](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)。
+
+已固定上游仓库 earendil-works/pi、release tag v1.4.0、release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。报告 30–31 的动态发布包为 1.4.0；本轮验证 agent.ts / agent-loop.ts / types.ts / README 的 blob SHA 与 release tag 完全一致，package.json 仅 devDependency vitest 版本不同。npm tarball dist 字节级校验仍未完成，不能声称二进制构建可复现。
+
+Core 首轮已追 Agent 单活动 Run、内存 transcript、steer/followUp queue、high-level awaited event barrier 与 low-level EventStream observational 区别、Loop 两层调度、context transform/conversion、tool preflight/parallel completion ordering、abort/error/truncation。重要边界：v1.0.0 已将 Session / Storage / Harness / Compaction 等从 pi-agent-core 移出到独立 pi-durable。
+
+**下一步：**
+1. 研究 pi-durable Harness / Conversation / Task / Scheduler / ToolTask / ownership / abort / restart / replay / nested calls / compaction / storage。
+2. 研究 Chord document / transaction / outbox / SQLite / JSONL / IndexedDB / checkpoint / delta replay / crash semantics。
+3. 研究 pi-coding-agent 如何组合 Core、Durable、MCP、extensions、permission、Session UI / RPC。
+4. 复核 PR #48 的 Kernel adapter spike，只抽象通用 Journal / Host / replay 边界，不预设必须沿用旧 Kernel。
+5. 完成后再与 Claude CLI / Desktop 同场景对照，提出独立架构方案。
 
 ### D. 最后统一比较并提出全新架构
 
@@ -126,23 +138,26 @@
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 51：Claude Desktop custom3p-mcp URL Elicitation 与 Utility Host 生命周期](./51-Claude-Desktop-custom3pMCP-URL-Elicitation与UtilityHost复核-2026-10-30.md)，承接报告 47–50。
+本轮新增 [报告 52：Pi Agent Core 1.4.0 发布基线、Loop 与工具调度](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)，并承接 Desktop 报告 47–51。
 
-**报告 51 本轮新增源码证据：**
+**报告 52 本轮新增源码证据：**
 
-- custom3p-mcp 的 HTTP/SSE server 使用独立 utility process directMcpHost.js；stdio custom3p-mcp 则在 Desktop main process 内直接建立 MCP Client。两条路径不是 LocalAgentMode SDK Query。
-- 两条路径都只声明 elicitation.url capability，并共用 main-process OJt consent handler；LocalAgentMode SDK builder 没有 onElicitation callback，默认 decline 是另一条路径。
-- OJt 只接受 HTTPS URL，hostname 最长 255；拒绝 form mode、Claude auth URL、disabled server 和并发 dialog。Electron native dialog 的按钮是 Open / Cancel，默认 Cancel，120 秒超时；只有 Open 才调用外部 browser。
-- HTTP/SSE utility host 使用每 server MessagePort 与递增 seq；elicitation/create 转为 main process elicitation 消息，elicitationResult 按 seq 返回；notifications/elicitation/complete 通过 serverName + elicitationId 另行转发。
-- directMcpHost 的 RequestManager fallback 是 action=cancel；port close / remote client close 时 drain 所有 pending request。main process shutdown 会 close active connections、dispose utility host，最多等待约 5 秒后 kill。
-- completion waiter helper 存在，但本轮未找到 kJt 直接 callsite；不能据此宣称所有 URL elicitation 都会等待 completion notification。
-- custom3p-mcp elicitation 是 MCP server-level URL consent，不是 Agent canUseTool permission，也不是 UserDialogBroker request_user_dialog。
+- 固定上游 earendil-works/pi，v1.4.0 tag 解析为 release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。
+- pi-agent-core@1.4.0 依赖 pi-ai@1.4.0、typebox 1.3.27，要求 Node >=22.19.0；Core exports 只含 Agent / Loop / Proxy / StreamFn setter / types。
+- v1.0.0 changelog 明确移除 AgentHarness、Session / Storage、durable runtime、compaction、skills 等，转由 pi-durable 承担。
+- 报告 30–31 动态测试所用发布包 1.4.0 的 Agent runtime 核心源码已通过 blob SHA 对齐 v1.4.0 release tag；npm tarball dist byte-for-byte parity 仍未知。
+- 高层 Agent await subscribers；低层 agentLoop EventStream 只排队，不提供 async consumer persistence barrier。
+- Agent 是单 activeRun；steer 在当前工具批次后注入，followUp 在自然停止点注入；两类队列默认 one-at-a-time。
+- Loop 在每个模型请求前执行 transformContext / convertToLlm / normalizeContext；system transcript messages 保存 prompt / tool declaration state。
+- Parallel tools 先按 source order 完成 preflight，再并发 execute；tool_execution_end 按完成顺序，ToolResult 按原调用顺序；若 batch 任一 tool 声明 sequential，则整个 batch sequential。
+- AbortSignal 由工具合作消费；Core 不提供强制 kill / 副作用回滚。ToolCall output length truncation 不执行工具，生成 error ToolResult 后可继续。
+- Agent.prompt() 可能将运行异常转成 error/aborted 事件后 resolve；Promise resolve 不等于 Agent turn 成功。
+- AgentTool replay metadata 在 Core Loop 不执行；Durable ToolTask 才持久化 replay intent 并按 stored + current policy 双重 safe 判断是否重跑。
 
-**报告 51 的未决问题：**
+**报告 52 的未决问题：**
 
-- MCP server 在 client reconnect 后是否重发 elicitation，以及 server-side elicitationId 是否持久化未知。
-- utility process crash / app shutdown 后，remote MCP session / SSE state 的恢复未知。
-- URL elicitation error retry / completion waiter 的实际调用路径未闭环。
-- native dialog 在 window close / account switch / app quit 下的动态行为未验证。
+- npm tarball dist 与 source build 字节级一致性、provenance / attestation 尚未核验。
+- 真实 Provider / Host / DB / external side effect / crash recovery 未做。
+- pi-durable / Chord / pi-coding-agent 的完整 Task、Storage、Session、Extension 与恢复链未研究。
 
-**下一轮顺序：** Desktop / SDK 可读发布版源码主要生命周期已完成报告 47–51。hosted renderer、native process job、SSH helper server-side 和动态 crash / side-effect 继续标记未知。下一步固定 Pi Agent Core 上游 repository、commit SHA、package version 和 npm tarball，先验证源码与实际发布包一致，再研究 loop、event、tool、context、session、extension、cancel、错误恢复与 persistence / resume。完成 Claude CLI / Desktop / Pi 同场景对照后再设计目标架构。未获得用户明确批准前，禁止进入开发。
+**下一轮顺序：** 先读 pi-durable README 与 Harness / Conversation / Scheduler / ToolTask 源码，建立 task lifecycle 与 recovery 状态机；再追 Chord 的 transaction/outbox/storage；最后追 pi-coding-agent composition。完成 Pi 子系统后统一与 Claude CLI / Desktop 同场景比较，再提出目标架构。明确批准前不进入开发。
