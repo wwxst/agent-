@@ -101,15 +101,26 @@ V5 分支从 backend.stat / paged result 取得 tornTailBytes；direct-file 分�
 
 | 边界序列 | reader 采用的活跃历史 |
 |---|---|
-| Full → Full | 最新 Full boundary；更早历史不保留在活跃 Map |
-| Reactive → Reactive | 最新 Reactive boundary 指定的 preserved UUID 集合 |
-| Reactive → Full | 最新 Full boundary 不带 preserved tail；旧 Reactive tail 不再作为当前活跃 tail |
+| Full → Full | 没有任何 preserved metadata 时，hdo 不做 relink/prune；活跃链由最新 summary / leaf 决定，旧 rows 可能仍留在 Map / 文件 |
+| Reactive → Reactive | 最新 Reactive boundary 指定的 preserved UUID 集合；更早的 pre-boundary rows 按该集合清理 |
+| Reactive → Full | 旧 Reactive boundary 的 metadata 不是最新 boundary；不恢复旧 tail，hdo 会清理最新 Full boundary 之前的 rows |
 | Full → Reactive | 最新 Reactive boundary 的 preserved tail |
 | 多次 Reactive | 不累加所有历史 preserved tail；按最新 boundary 的集合重建 |
 
-这里的“删除”是 reader Map 的 pruning，不等于原始 JSONL 文件被物理截断。原文件仍可保留旧记录。
+这里的“删除”是 reader Map 的 pruning，不等于原始 JSONL 文件被物理截断。原文件仍可保留旧记录。另一个边界是：如果整份 transcript 从未出现带 preserved metadata 的 boundary，hdo 会直接 return，不会主动 prune；Full compact 后的活跃链依赖 summary / leaf 的 parentUuid 结构，而不是 hdo 删除所有旧 rows。
 
-### 2.2 preservedMessages 与 preservedSegment
+### 2.2 Reader normalization 先于 compact relink
+
+`GCt.finish()` 的顺序是先执行 `dRt.finish(Map)`，再执行 `hdo(Map)`。因此 compact relink 前还有一层 row normalization：
+
+- `dRt.admit()` 对 system rows 执行 schema repair；compact_boundary 的 compactMetadata 也在这里做字段规范化。
+- 对 user/assistant rows 检查 message/content 形状；无法使用的 row 会被 drop，部分 malformed content blocks 会被过滤，assistant string content 会被包装成 text block。
+- 被 drop 的 row 会暂存 uuid → parentUuid；finish 时将其 children 的 parentUuid 沿被 drop 的链向上重挂到最近的 surviving ancestor。
+- 如果被 drop 的 parent 链自身形成 cycle，repair 会将该链收敛到 null，而不是继续无限遍历。
+
+这只修复**已经成功 JSON parse、但消息结构不符合预期**的 row。JSONL 行本身无法解析时，前面的 HSt/BRt 已经跳过，dRt 没有原 row 可修复。
+
+### 2.3 preservedMessages 与 preservedSegment
 
 `ydo()`（@419,707）有两种恢复来源：
 
@@ -118,7 +129,7 @@ V5 分支从 backend.stat / paged result 取得 tornTailBytes；direct-file 分�
 
 如果 walk 遇到缺失节点或循环，记录 `tengu_relink_walk_broken` 并返回 undefined；hdo 在任何 prune 前退出。
 
-### 2.3 preserved UUID 缺失：先保护，不做破坏性 prune
+### 2.4 preserved UUID 缺失：先保护，不做破坏性 prune
 
 若 preserved UUID list 中任意 UUID 不存在：
 
@@ -131,7 +142,7 @@ V5 分支从 backend.stat / paged result 取得 tornTailBytes；direct-file 分�
 
 但它不保证后续恢复链完整。KRt 仍会选择 Agent leaf，RMt 仍会尝试 parentUuid walk；如果缺失节点位于活跃链上，可能只得到 partial chain。
 
-### 2.4 anchor UUID 缺失
+### 2.5 anchor UUID 缺失
 
 hdo 对 preserved UUID 做完整性检查，但没有把 `anchorUuid` 不存在作为直接 abort 条件；源码只将 `anchorInTranscript` 记录到 relink-broken telemetry。
 
@@ -139,7 +150,7 @@ hdo 对 preserved UUID 做完整性检查，但没有把 `anchorUuid` 不存在�
 
 这属于需要测试的风险边界：不能仅凭 preserved UUID 全部存在，就断言 summary anchor 与 preserved tail 的连接有效。
 
-### 2.5 ParentUuid 缺失 / cycle 的 fallback
+### 2.6 ParentUuid 缺失 / cycle 的 fallback
 
 `RMt()`（@420,397）沿 parentUuid 向上重建链。若 parent 缺失或已经访问过，调用 `Sdo()`（@422,580）。
 
@@ -154,7 +165,7 @@ Sdo 的源码条件：
 
 值得注意：Sdo 没有显式比较 agentId。如果 transcript Map 同时包含多个 Agent 的 sidechain rows，理论上可能选到其他 Agent 的候选；KRt 最终又按目标 agentId 过滤，因此可能留下更短的恢复链。这是条件性风险，输入 Map 是否包含多个 Agent 候选需动态验证。
 
-### 2.6 Parallel tool_result 修复
+### 2.7 Parallel tool_result 修复
 
 `bdo()`（@423,822）在 parentUuid chain 构建后尝试恢复并行工具结果关联：
 - 以 assistant message ID 聚合 rows；
@@ -324,7 +335,7 @@ K3t 中的 pending permission relay、request_id 去重集合和 AbortController
 
 | File | SHA-256 | Anchors |
 |---|---|---|
-| `chunk-4b60tdnk.js` | `c0df8641329d42ecea033337ce51bf9b44986b4b82b858ac6c6ef1ba851404bb` | PRt @393,989；odo @393,771；HCt/BRt @463,311/@463,529；see @488,032；hdo/ydo @418,403/@419,707；RMt/Sdo/bdo @420,397/@422,580/@423,822；iee/KRt @504,071/@504,720；vTs/kTs/Ylo @334,076/@334,799/@335,482；q3t/O8o/K3t @1,714,424/@1,723,714/@1,725,911 |
+| `chunk-4b60tdnk.js` | `c0df8641329d42ecea033337ce51bf9b44986b4b82b858ac6c6ef1ba851404bb` | PRt @393,989；odo @393,771；HCt/BRt @463,311/@463,529；see @488,032；hdo/ydo @418,403/@419,707；RMt/Sdo/bdo @420,397/@422,580/@423,822；dRt normalization @319,074；iee/KRt @504,071/@504,720；vTs/kTs/Ylo @334,076/@334,799/@335,482；q3t/O8o/K3t @1,714,424/@1,723,714/@1,725,911 |
 | `chunk-pg0h3gn9.js` | `753a30fcbe2a1df15fef75991aeed367c5d7872dec655c5016af82aca51d2bca` | HSt / Bun.JSONL.parseChunk / line-by-line JSON.parse @20,137 |
 | `chunk-ns649tzz.js` | `237bd2a46506c6abae41ec86d98c0c4153c8955e11a737044f771b3b1a44729c` | TRs=268435456 (256 MiB) @89,708 |
 | `chunk-x2vmny5t.js` | `3667233d41141b18e369634dee1143022783b247ef99cdb90156bc17047cbc44` | Fzt ByteViewUnsupported @1,150 |
