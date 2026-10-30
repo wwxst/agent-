@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 54：Chord 1.4.0 Host / Object / RPC / ReplicatedState）  
+> 最后更新：2026-10-30（报告 55：Pi Durable Storage Adapters 与持久性边界）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -46,6 +46,7 @@
 | 报告 52 | Pi Agent Core v1.4.0 release commit pin；旧动态实验 source blob parity；Agent / low-level Loop；event barrier；steering/follow-up；context transform；parallel tool ordering；abort/error/truncation；Core vs Durable package boundary | Core 源码静态复核 + 既有 fake-based 11/11 实验；npm tarball dist 字节级校验、真实 Provider/Host/DB/crash 未做；pi-durable / Chord / coding-agent 待研究 |
 | 报告 53 | pi-durable 独立 Agent runtime；SessionImpl serialized commit line；Conversation / Entry / Document / Task / Submission；TaskScheduler restart / reserve / phase / ownership / abort cascade；GenerationTask retry / deferred / compaction / tool round；ToolTask intent / safe replay / nested calls；commit-derived watchEvents | 固定 release 源码静态追踪；SQLite/JSONL/IndexedDB adapter、Chord transaction、真实 crash / external side effect、CompactionTask 动态验证仍未完成 |
 | 报告 54 | Chord 1.4.0 Host / Facet / Contract / Object / Ref；root / principal / cancellation；Protocol v4 / Link / Connection / ack flow control / resync；ReplicatedState 100-event overflow；strict JSON delta / immutable tracker；local / cluster hot reload 与 code-version retirement；排除未发布 src/next | 固定 release 源码静态追踪；多进程 / WebSocket / reload / revoke 动态验证未做；Chord 不是 Durable Store，pi-durable backend adapters 待研究 |
+| 报告 55 | Pi Durable 1.4.0 Memory / JSONL / SQLite / IndexedDB / Cloudflare DO Storage；atomic batch、seq、ID、schema migration、delta/base/reclaim、poison/recovery；Node WAL/NORMAL、JSONL sidecar→marker 与 fsync 缺口；上游故障测试证据 | 固定 v1.4.0 源码 + 既有测试文件静态分析；本轮未执行测试；真实 power failure、multi-owner fencing、external effect exactly-once 未验证 |
 
 ## 4. 研究覆盖率
 
@@ -57,7 +58,7 @@
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
-| Pi Agent Core / Durable / Chord | **Core、Durable Task runtime、Chord 1.4.0 Host/RPC 首轮源码研究完成；Storage adapters / coding-agent 未完成** | 报告 52–54 已 pin v1.4.0；追 Core Loop、独立 Durable Generation/ToolTask、Session commit line、TaskScheduler recovery、Chord Host/Object/Contract、root/principal、Protocol v4、ack flow control、ReplicatedState/delta 与 hot reload。关键边界：Chord 1.4.0 是 Host/RPC/state replication runtime，不是 Durable Store；下一步核验 pi-durable Storage adapters 与 Chord SQLite drivers / HostManager |
+| Pi Agent Core / Durable / Chord | **Core Loop、Durable Task runtime、Chord Host/RPC、Storage adapters 首轮源码研究完成；HostManager / Compaction / coding-agent 未完成** | 报告 52–55 固定 v1.4.0：Core 与 Durable 为独立引擎；追 Session commit line、TaskScheduler、Generation/ToolTask、Chord root/RPC/state/hot reload；报告 55 核验 SQLite txn+WAL/NORMAL、JSONL marker/sidecar/poison/recovery 与 fsync 主 marker 缺口、IndexedDB/DO/Memory；下轮追多进程 HostManager/processLock、Compaction、coding-agent；真实 crash/power/Host side effect 仍未知 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
 | 用户确认 | 未开始 | 完整方案交付后等待明确批准 |
@@ -92,7 +93,7 @@
 1. 仅在可获得真实 Storage V5 provider、Cloud Session API contract 或隔离环境时，验证 V5 durability、Cloud event cursor、archive acknowledgement、permission relay 与真实副作用；否则维持未知，不以 mock 代替服务端事实。
 2. 报告 46 已将多次 Full/Reactive compact、preserved UUID / anchor 缺失、parentUuid cycle、JSONL torn tail、V5 readRecords fallback、Remote Agent null cursor / metadata loss / archived terminal result 放入统一状态矩阵；矩阵中的所有 crash 结果仍需动态测试。
 3. Desktop/SDK 报告 47–51 已覆盖可读发布版主要宿主、callback、MCP 生命周期。hosted renderer reload、native process job、SSH helper server-side、MCP reconnect / elicitation recovery 与真实 crash 行为保留为未知；不再把不可读服务端路径当作当前可推进源码任务。
-4. Pi Core 与 Durable 首轮研究见报告 52–53：Core loop 与 Durable task runtime 是两套独立执行引擎。下一步深入 Chord transaction / delta / storage、各 backend adapter 与 crash semantics，再研究 compaction / pi-coding-agent composition。
+4. Pi Core、Durable、Chord、Storage adapters 首轮静态研究见报告 52–55：Core loop 与 Durable task runtime 是两套独立引擎，Chord Host/RPC 与 Durable Store 不等价。下一步追 Node HostManager/processLock 与 Compaction、coding-agent；真实 crash/断电/工具副作用测试仍未完成。
 5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
 
 ### B. Desktop / SDK（报告 47–51：可读发布版源码主要生命周期追踪完成）
@@ -103,25 +104,25 @@
 
 **剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 不在 source-only package；native process job 与 SSH helper/daemon server-side 语义不可从客户端 JS 推断；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 未动态验证。没有额外证据时保持未知，不虚构服务端保证。
 
-### C. Pi Agent Core 与 Durable / Chord（报告 52–53 已完成 Core 与 Durable 首轮）
+### C. Pi / Chord 子系统（报告 52–55 已完成首轮源码研究）
 
-[报告 52：Pi Agent Core 1.4.0 发布基线、Loop 与工具调度](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)；[报告 53：Pi Durable Harness、TaskScheduler 与 Generation / ToolTask 状态机](./53-Pi-Durable-HarnessTaskScheduler与GenerationToolTask状态机复核-2026-10-30.md)。
+- [52：Pi Agent Core v1.4.0 / Agent Loop / Tool dispatch](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)
+- [53：Pi Durable / Harness / TaskScheduler / Generation / ToolTask](./53-Pi-Durable-HarnessTaskScheduler与GenerationToolTask状态机复核-2026-10-30.md)
+- [54：Chord v1.4.0 Host / Object / RPC / ReplicatedState / Hot Reload](./54-Chord-1.4.0HostObjectRPC与ReplicatedState热更新协议复核-2026-10-30.md)
+- [55：Storage Adapters 原子性、恢复与耐久性边界](./55-Pi-Durable-StorageAdapters事务原子性恢复与耐久边界-2026-10-30.md)
 
-已固定上游仓库 earendil-works/pi、release tag v1.4.0、release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。报告 30–31 的动态发布包为 1.4.0；本轮验证 agent.ts / agent-loop.ts / types.ts / README 的 blob SHA 与 release tag 完全一致，package.json 仅 devDependency vitest 版本不同。npm tarball dist 字节级校验仍未完成，不能声称二进制构建可复现。
+固定上游 earendil-works/pi tag v1.4.0、release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。报告 30–31 动态实验所用 pi-agent-core@1.4.0 的核心 TypeScript 源码与 release tag blob SHA 一致；npm tarball dist 字节级 build parity 未验证。
 
-Core 首轮已追 Agent 单活动 Run、内存 transcript、steer/followUp queue、high-level awaited event barrier 与 low-level EventStream observational 区别、Loop 两层调度、context transform/conversion、tool preflight/parallel completion ordering、abort/error/truncation。
+**已确认架构边界：** pi-agent-core 是内存 Loop；pi-durable 不依赖 pi-agent-core，而是直接基于 pi-ai + Chord 自行实现 Harness / GenerationTask / ToolTask / TaskScheduler；Chord 1.4.0 提供 Host/Contract/RPC/ReplicatedState/delta/SQLite portable facade，不是 Durable Store。当前 main 上未发布的 chord/src/next 不得用于解释 v1.4.0。
 
-Durable 首轮已追 SessionImpl serialized commit line、Conversation / Entry / Document / Task / Submission 数据模型、TaskScheduler open/resume/restart/reserve/phase/ownership/abort cascade、GenerationTask prepare/request/retry/poll/tools、ToolTask execute intent / safe replay / nested calls、requestId 幂等 admission 与 commit-derived watchEvents。
+**报告 55 发现：** SqliteStorage 把 record/document/meta next_seq 放进一个事务，Node driver 默认 WAL + synchronous=NORMAL；JSONL 先写 sidecar（fsync=true 时 flush sidecar）再 append main marker、后做 best-effort reclaim，但每次成功 commit 并不确保 main marker flush；IndexedDB 使用单个 ALL_STORES readwrite transaction，Cloudflare DO 使用平台 storage.transaction，Memory 只在进程内有效。事务原子性不能替代 power-loss durability、single-writer fencing 或 external tool exactly-once。
 
-**关键边界：** pi-durable 不依赖 pi-agent-core；它直接基于 pi-ai + Chord 实现自己的 GenerationTask / ToolTask Agent runtime，不是 Core Agent 的存储 adapter。两套执行引擎必须并列研究。
-
-**下一步：**
-1. 核验 pi-durable SQLite / JSONL / IndexedDB / Memory / Cloudflare adapters 的真实 commit 原子性、序列分配、WAL、fsync、migration、single-owner / lock 语义。
-2. 研究 Chord portable SQLite interface、Node driver、Cloudflare Durable Object driver、schema migration；另查 Node HostManager / processLock / forkDriver。
-3. 动态验证 TaskScheduler crash/reopen、restart limit、waiting/failFast、completing/ownership、abort cascade、safe/unsafe ToolTask replay。
-4. 闭环 CompactionTask 与 context range / stale summary。
-5. 研究 pi-coding-agent 如何组合 Core / Durable、MCP、extensions、permissions、TUI / RPC。
-6. Pi 子系统完成后再与 Claude CLI / Desktop 做同场景矩阵对比。
+**下一轮顺序：**
+1. Chord Node HostManager / processLock / forkDriver、child host IPC/root/reference leases、child crash / restart / ownership。
+2. Pi Durable CompactionTask / context range / summary staleness / background compaction 与 checkpoint。
+3. pi-coding-agent 1.4.0 组合层：究竟运行 Core 还是 Durable，MCP / Tool permissions / extension / TUI / RPC / Session 如何接线。
+4. 汇总动态故障注入的设计与未覆盖矩阵；研究阶段不修改业务代码或 Kernel，不能将计划视为实验结果。
+5. 完成与 Claude CLI 2.1.304、Desktop 3.1623.1、SDK wrapper 0.3.304 的同场景横向比较，再形成独立目标架构与实施路线图，提交用户审阅；明确批准前禁止进入开发。
 
 ### D. 最后统一比较并提出全新架构
 
@@ -145,33 +146,24 @@ Durable 首轮已追 SessionImpl serialized commit line、Conversation / Entry /
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 53：Pi Durable Harness、TaskScheduler 与 Generation / ToolTask 状态机](./53-Pi-Durable-HarnessTaskScheduler与GenerationToolTask状态机复核-2026-10-30.md)，承接报告 52 的 Core v1.4.0 基线与 Loop 研究。
+**最新：报告 55** [Pi Durable Storage Adapters 事务原子性、恢复与耐久性边界](./55-Pi-Durable-StorageAdapters事务原子性恢复与耐久边界-2026-10-30.md)。承接报告 52–54 的 Core、Durable、Chord 研究。
 
-本轮新增 [报告 54：Chord 1.4.0 Host / Object / RPC / ReplicatedState 与热更新协议](./54-Chord-1.4.0HostObjectRPC与ReplicatedState热更新协议复核-2026-10-30.md)，固定在同一 v1.4.0 release tag。
+### 本轮源码核验
 
-**报告 53 本轮新增源码证据：**
+- 固定上游 v1.4.0 release commit 4a080252f06caf63a525d7873c5d94d3c23887e0；所有 Adapter、driver、test 都从该 tag 读取，未混入当前 main 的未发布变更。
+- SQLite：SqliteStorage.commit 使用单 db.transaction 写全批 records / document revisions / next_seq；Chord node:sqlite driver BEGIN IMMEDIATE / COMMIT / ROLLBACK；默认 journal_mode=WAL、synchronous=NORMAL、busy_timeout=5000ms、wal_autocheckpoint=1000 pages，close wal_checkpoint(TRUNCATE)。SQLite migrations 在单事务运行，v2 增加 sleeping state。
+- JSONL：MemoryStorage.prepareCommit 预先检验、detach；sidecar append →（fsync 可选）sidecar flush → main.jsonl marker append → memory.apply → best-effort reclaim；**即使 fsync=true，main marker 不在每次 commit 结束前强制 flush，不能宣称每条 commit 断电保留。**
+- JSONL recovery：解析完整 LF lines、字节截断 torn tail、按 main marker+seq/ordinal 确认 sidecar、移除未确认 tail；缺失必需的 confirmed sidecar、完整非法 JSON/非递增 seq 拒绝恢复；reclaimable historical sidecars 有条件允许缺失。
+- IndexedDB：单 ALL_STORES readwrite transaction 包含 records + seq；mintId 在 meta readwrite 事务中持久递增；Adapter 无跨窗口 Web Lock/lease。上游测试使用 fake-indexeddb，未覆盖真实浏览器 quota/eviction/power failure。
+- Cloudflare DO：same storage object 通过 WeakMap 共享 queue，复用 SqliteStorage，在 ctx.storage.transaction 内提交；绕过 facade 的直接 SQL 不受此 queue 约束。没有真实平台测试。
+- MemoryStorage：prepareCommit clone/freeze + validate，apply 同步更新 Map 和 nextSeq；进程退出无持久性。
+- 上游测试源码已有 SQLite rollback/reopen/history/WAL/indexes、JSONL append/flush/reclaim/torn tail/corruption、IndexedDB batch rollback/reopen；本轮**只阅读测试源码，没有执行**。
 
-- pi-durable 是独立 Agent runtime，不依赖 pi-agent-core；package dependencies 为 chord、pi-ai、pi-codemode、pi-telemetry 等；其 harness/agent.ts、generation.ts、tool.ts 实现独立 Agent / GenerationTask / ToolTask。
-- Conversation 是无状态 handle；Entry immutable；Document 是 typed JSON state；Task 是 versioned checkpoint state machine；Submission 是 request admission / settlement receipt。
-- SessionImpl 通过 #tail 把 commitWith / readOnLine 串行化；#runCommit stage Transaction，再一次 Storage.commit atomic batch；Storage 成功后 adopt documents 并发布 CommitPublication。
-- Internal listener throw 会 fail Session；public observer throw 只 report；Storage commit / mintId error fail Session，Harness 不自动 retry。
-- TaskScheduler.open 将 persisted running task 改 pending 并增加 restart count；Harness.open 不自动 resume；graceful close 的 join 会 abort invocation 并把 running 写回 pending，不增加 crash restart。
-- TaskDefinition 以 phase checkpoint 驱动；phase 无 durable progress 会 fault；reserve 在 commit 内，phase code 在 commit 外；wait graph 检查 DAG；terminal owner 有 child work 时先 completing；abort cascade bottom-up。
-- Submission requestId 在 conversation 内幂等；Inbox 在 boundary 应用 steer / follow-up / write；busy 默认 follow-up。
-- GenerationTask 的 prepare/request/retry/poll/tools phase 保存 cutoff、partial、retry、deferred handle 与 tool-round state；partial 每默认 100ms 节流 commit，final flush await。
-- ToolTask 在执行前 commit phase=execute + final arguments + replay policy；恢复只在 stored 与 current tool policy 都 safe 时重放；unsafe / changed policy 以 interrupted may-have-partially-run 结算。
-- Nested tool call 是 parent-owned child ToolTask，NestedCallDoc 按 stable key 保存结果；不是简单函数嵌套。
-- watchEvents 在 Session line 上原子取得 snapshot + commit subscription；每 commit 一个 event batch；CommittedWatch 最多保留 100 pending frames，溢出后以最新 snapshot 替代。
-- Chord 1.4.0 的真实定位是 Host / Contract / Object / RPC / ReplicatedState / delta；root export 没有通用 Durable Store。固定 v1.4.0 tag 不包含 packages/chord/src/next，不能拿 main 上后续 next Store 源码解释该 release。
-- Chord Protocol v4 使用 hello/hold/release/call/cancel/sub/unsub/resync、shape/gone/result/state、root_end/ack 与 reload prepare/vote/commit/abort/retire frames；Connection 默认 256 KiB ack window、4-window pending cap，state backlog 超限以 reset/resync 恢复。
-- Host root 携带 codeVersion / principal / AbortSignal 并跟踪跨 host object leases；hot reload 有 candidate prepare、gate、state/resource migration、stage listeners、同步 publish、旧版本 root retirement；cluster reload 通过 prepare/vote/commit/abort 协调。
+### 风险与未知
 
-**报告 53 的未决问题：**
+- SQLite NORMAL、JSONL 未 flush 主 marker、IndexedDB 浏览器持久性分别带来不同的 power-loss 限制；没有断电、kill -9、磁盘满或 fsync directory 的动态验证。
+- SqliteStorage.mintId 基于实例本地 nextId，非跨进程 ID lease；SessionImpl #tail 也不提供多 owner TaskScheduler fencing。没有复现实验。
+- Storage 原子 commit 不涵盖 Host tool side effect。Intent / Receipt / external operation 的 exactly-once 不成立；需要明确 unknown outcome、幂等与 reconcile 设计。
+- Chord HostManager/processLock、CompactionTask、pi-coding-agent composition 仍是下轮研究；没有最终目标架构决策。
 
-- pi-durable SQLite / JSONL / IndexedDB / Cloudflare backend 的 fsync / WAL / multi-owner / crash semantics 尚未逐源码验证；Chord 1.4.0 replicatedState 是内存 publication，不提供 Durable Store transaction。
-- Chord Node HostManager / processLock / child host IPC lifecycle 未研究；多 host reload / revoke / flow-control 尚未动态验证。
-- Scheduler 同时 abort / close / storage failure / child completion / registry replacement 的 race 未动态故障注入。
-- CompactionTask / summary staleness / context range 未闭环；pi-coding-agent composition 未研究。
-- ToolTask safe replay 是否真正幂等取决于外部 tool / host，未做真实副作用验证。
-
-**下一轮顺序：** 先固定并逐模块研究 Chord 1.4.0 的 replicatedState / transaction / delta / storage；再核验 pi-durable 的 SQLite / JSONL / IndexedDB / Cloudflare adapters；然后做 TaskScheduler / ToolTask recovery 动态矩阵。最后研究 CompactionTask 与 pi-coding-agent composition。明确批准前不进入开发。
+**下一轮**：先 Chord Node HostManager / processLock / forkDriver，再 CompactionTask 和 pi-coding-agent composition；完成 Pi 全图后才与 Claude CLI/Desktop/SDK 做完整同场景比较。只允许研究证据/进度更新；没有开发批准。
