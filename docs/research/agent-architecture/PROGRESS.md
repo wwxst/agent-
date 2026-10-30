@@ -38,6 +38,8 @@
 | 报告 44 | Remote Agent Tool → Cloud Session create → remote_agent task/metadata sidecar → K3t event poll + permission relay → MQt/O8o resume → TaskStop/archive；区分 cloud task restore 与 local Agent W7/adoptedPrefill | 静态源码；event cursor replay、archived terminal replay、archive ack、Storage V5 durability 与真实 cloud worker 行为未动态验证 |
 | 报告 45 | Storage V5 注入链：default factory hFr 不提供 backend、main/init 外部注入与 configHome guard；逻辑 keyspace/hostFiles 边界；Agent/Remote Agent/MCP/precompact/transcript 写入 discipline 矩阵；本地 On/VQ atomic rename、flush gate 与 transcript compaction sync 对照 | 静态源码 + 有限 binary string scan；具体 V5 provider、atomic/inPlace 精确定义、fsync/目录同步/远端提交保证、断电恢复均未知 |
 | 报告 46 | Transcript / Agent resume / Remote Agent 联合恢复矩阵：read→readRecords 条件、4 MiB 分页与 256 MiB cap、JSONL invalid/torn tail、5 MiB fast scanner、dRt row normalization、hdo 多次 compact / preserved UUID / anchor、RMt/Sdo parent fallback、bdo parallel tool_result、Remote Agent cursor/metadata/archive 故障矩阵 | 静态源码；未运行真实 Storage V5 provider / Cloud Session；null cursor 服务端语义、archived 语义、crash 时序和启发式跨 Agent 影响仍未知 |
+| 报告 47 | Desktop 3.1623.1 / SDK host startup、RemoteServerController、Session query lifecycle 与双向协议第一轮追踪 | 静态源码；helper server-side、完整权限收敛和进程恢复仍需核验 |
+| 报告 48 | RemoteProcess sequence replay / stdin offset / orphan reaper；persisted adoption policy；MCP 多拓扑；ToolPermissionBroker；EIPC event 与 snapshot recovery | 静态源码；SSH helper 服务端、动态 crash/side-effect、Desktop 全生命周期仍未知 |
 
 ## 4. 研究覆盖率
 
@@ -47,7 +49,7 @@
 | Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–41 已补 remote cancel/call ledger、Bash/MCP executor、后台任务恢复与取消时序矩阵；报告 42–43 已补 Agent/Subagent lifecycle、compaction 与 transcript resume reader；报告 44 已追 Remote Agent Cloud Session create/poll/restore/archive；报告 45 已追 Storage V5 default injection seam、configHome guard、keyspace 与 sidecar write discipline；报告 46 已建立 reader/Agent resume/Remote Agent 联合恢复矩阵；仍需核验 provider physical durability、真实进程/服务器取消及完整故障状态机 |
 | Claude CLI 权限、并发和失败恢复 | **本地与远端任务路径已有静态状态机；动态验证未做** | 报告 38–41 覆盖 Remote Host/Bash/MCP 取消；报告 44 覆盖 Remote Agent Cloud Session create/poll/restore/archive 与 permission relay；仍需验证 event cursor replay、archived result recovery、archive ack、真实 Shell/MCP/cloud side effects |
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
-| Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验；**下一研究目标** | 从 Desktop host/process 启动开始，追 request/response correlation、消息方向、Session 与 Process 生命周期、权限 broker、MCP bridge、取消、idle/exit、resume；同时明确 SDK wrapper 和 Desktop host 的职责边界 |
+| Desktop / SDK 启动、Session、双向协议 | **第一轮启动链与第二轮 SSH adoption / MCP / permission / event IPC 静态追踪已完成；尚未完整** | 报告 47–48 已追 Desktop host process / SDK query 启动、RemoteProcess replay 与持久化接管、policy/hook/permission/MCP settle、MCP 多拓扑、ToolPermissionBroker、EIPC event + snapshot。继续核对 local spawn 与 SSH 对照、SDK options/hooks/canUseTool 注入、stop/cancel/idle/exit/restart；helper server-side source 与动态恢复未知 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
@@ -87,9 +89,13 @@
 4. 随后完成 Pi Core 固定上游源码与发布包核对。
 5. 两者完成后统一比较成熟方案，再提出独立目标架构与备选方案。
 
-### B. 再研究 Desktop / SDK
+### B. Desktop / SDK（报告 47–48 已完成两轮静态追踪，仍有未决边界）
 
-从 Desktop 如何创建宿主进程开始，跟踪双向协议、request correlation、Session/Process 生命周期、权限 broker、MCP 桥接、取消与关闭语义。
+[报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)。
+
+报告 47 追踪 Desktop host startup、SDK query/session 启动、RemoteServerController 与 process RPC 的客户端边界；报告 48 进一步确认 RemoteProcess 的 sequence replay、line-aligned stdout checkpoint、stdin offset、orphan reaper、persisted adoption policy、接管后的 hook/permission/remote-control/MCP settle、MCP 五类拓扑、ToolPermissionBroker 和 EIPC event/snapshot 分工。
+
+**仍需完成：** local process spawn 与 SSH path 对照；SDK query options / hooks / canUseTool 的完整注入链；stop/cancel/idle/exit/restart 状态矩阵；Session metadata/transcript 的本地恢复；获取 SSH helper/daemon server-side source 或协议规范。没有服务端证据时，replay ring buffer、stdin 去重、killAndWait 语义必须保持未知。
 
 ### C. 再研究 Pi Core
 
@@ -117,26 +123,28 @@
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 46：Transcript 与 Remote Agent 联合恢复状态矩阵](./46-Claude-Transcript与RemoteAgent联合恢复状态矩阵-2026-10-30.md)，承接报告 45 的 Storage V5 provider provenance 研究。
+本轮新增 [报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md) 和 [报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)。
 
-**报告 45 已确认：**
+**报告 47 的范围：** 从 Desktop host startup 进入 SDK query/session 启动，追 RemoteServerController、process RPC、双向消息与 Session / Process 关系。它是第一轮静态追踪，不代表 Desktop/SDK 已研究完成。
 
-- CLI entry 的 pinStorageV5FromEnv 使用默认 hFr factory，而当前 hFr 不返回 backend；main/init 接受外部 storageV5EnvPin，并通过 configHome guard 决定是否接纳。
-- Storage V5 采用结构化 namespace/keyspace；transcript、sidecar、task 等是逻辑 key，hostFiles.realPath 是单独的 Host 文件能力。
-- Desktop JS 只看到 SDK logger 消费可选 storageV5，没有找到 Desktop 主进程创建 concrete provider 的调用链；native strings scan 是弱负面证据，不是排除证明。
-- Agent metadata / precompact sidecar V5 write 未指定 publishDiscipline；Remote Agent metadata 与 MCP metadata 用 inPlace；MCP outcome 与 transcript compact 用 atomic；transcript/journal append 未指定 discipline。
-- 本地 On/VQ 采用 temp + rename 并可在特定错误时 fallback inPlace；只有 flush:true 才调用 FileHandle.sync，而 On wrapper 未传 flush。Transcript compact 的专用本地路径显式 sync temp file 后 rename。
-- Storage V5 backend 的具体实现、atomic/inPlace 语义、ack/fsync/目录同步/WAL/远端 quorum 与断电恢复仍未知；consumer success 不能直接视为 durable commit。
+**报告 48 本轮新增源码证据：**
 
-**报告 46 本轮新增证据：**
+- RemoteProcess 使用 process ID + stream sequence 管理远端 CLI；stdout replay checkpoint 对齐完整行边界，skipBytes 处理已交付前缀；stdin 采用 byte offset 与 stdinApplied watermark。
+- checkpointBarrierBeforeStdin 先调用 Session checkpoint sink 并等待 persistence flush，再发送 stdin；但 sink 失败会 fail-open 继续发送，不能称为原子提交。
+- reattach gap 不是一律忽略：只有 gap-survive gate 与 consumer 等条件允许时，才 resync 到下一个换行；否则 abandon / unadoptable。
+- orphan reaper 在 spawn 前执行，账本最多 4 个 process ID，并结合 hostKey、daemonInstanceId、killAndWait 支持情况及 foreign-daemon 等待窗口避免误删。
+- transport rebind 的 canReattach 只要求 process.reattach；持久化 adoption 的 supportsProcessAdoption 还要求 process.killAndWait 和 process.stdin.offset。
+- persisted adoption 检查 host/person/policy/launcher/hooks/permission/remote-control/MCP 等兼容性；进程接管成功后仍需完成 hook、permission mode、remote control、MCP 和 Session 配置 settle 才能释放 held input。
+- MCP 至少存在 host-run stdio、SSH-spawn stdio proxy、remote connector proxy、direct connector pool、internal server 五种路径；transport 与 tool permission gate 分离。
+- ToolPermissionBroker 保存 pending request，支持 AbortSignal、only-on-card、禁止长期授权、input 校验和 project-config-root fence；MCP transport gate 再验证 tools/list、tools/call 和 per-session authorization。
+- EIPC 对 method/event 做 schema validation 和 origin/top-frame 检查；session_updated 会 microtask coalesce；renderer 同时拥有 getAll/getSession/getTranscript snapshot API。未见 event ack/cursor/replay，因此 event 是通知，不应等同 durable event log。
 
-- Storage V5 read fallback 不是通用重试：ByteViewUnsupported 与 EFBIG 分别进入 readRecords paging；分页 4 MiB，fallback 上限 256 MiB，cursor 必须前进；permission failure 返回 inaccessible，其他失败抛 unreadable。
-- JSONL parser 保留有效行、跳过无法解析行；5 MiB 以上有 BCt/Ido fast scanner。tornTailBytes 不会自动补齐缺失消息。
-- GCt.finish 先通过 dRt 规范化可解析但 schema 异常的 rows，再执行 hdo compact relink。dRt 可清理 malformed content 并将 child parentUuid 沿 dropped-row chain 重挂；它不能修复 parser 已跳过的非法 JSONL 行。
-- hdo 以最新 compact boundary 为准；若最新 Reactive preserve 列表缺 UUID，会在 relink/prune 前退出；preservedSegment walk 缺节点/cycle 也退出。若最新 boundary 为 Full 且此前存在 preserved metadata，不会恢复旧 tail；若从未有 preserved metadata，hdo 本身不 prune，活跃链依赖 summary/leaf graph。
-- RMt/Sdo 在 parent 缺失/cycle 时使用最多 5 秒、同 isSidechain 的时间 fallback；Sdo 没有显式 agentId check，是条件性跨 Agent 风险，尚未动态验证。missing-parent fallback 无候选时返回 partial chain；cycle telemetry 与 missing-parent 不能混为一谈。bdo 另按 tool_use_id/sourceToolAssistantUUID + agentId/isSidechain 修复 parallel tool_result。
-- Agent resume 的 KRt 需要目标 Agent sidechain rows 和 leaf；V5 非 permission read failure 变成 load_threw，iee 不走同一 hydration 路径。
-- Remote Agent V5 metadata list/read failure 会返回空 restore 集合；K3t cursor 仅在内存，resume 从 null cursor 开始，output file append-only；runId 仅用于 notification dedupe。O8o archived restore 删除 metadata 并跳过 terminal replay；TaskStop archive 不 await ack 后删除 metadata。
-- 上述都是静态源码事实与条件性风险；没有运行真实 Storage V5 provider、Cloud Session 或 crash injection。
+**报告 48 的未决问题：**
 
-**下一次新对话第一任务：** 从 Desktop 3.1623.1 / SDK wrapper 0.3.304 的 host process startup 开始，追双向协议、request correlation、Session/Process lifecycle、permission broker、MCP bridge、cancel 与 idle/exit；之后完成 Pi Agent Core 上游源码/发布包核对。CLI 报告 33–46 均为静态源码研究，动态 provider/cloud 行为仍未知；不是最终架构裁决，不允许开始开发。
+- SSH helper/daemon server-side source 未在可读 bundle 中；sequence ring buffer、stdin offset 去重、killAndWait / process tree 语义、daemonInstanceId 生命周期未知。
+- checkpoint sink 失败时仍发送 stdin；app/OS crash、network partition 下是否发生输入与 checkpoint 分离尚未动态验证。
+- 远端 MCP 子进程在 host restart、Windows job object、Desktop exit 后的真实清理行为未知。
+- permission broker / MCP gate 并发和外部副作用、renderer reload / account switch / parked session 的全量恢复均未动态验证。
+- Desktop local process path、SDK options/hooks/canUseTool 注入、stop/cancel/idle/exit/restart 仍需继续追踪。
+
+**下一轮顺序：** 先完成 Desktop/SDK 剩余生命周期和可获得的 helper server-side 证据；若 helper source 不可得，明确保留未知。随后固定 Pi Agent Core 上游 commit 与发布包，逐模块研究 loop、event、tool、context、session、extension、cancel 和错误恢复。完成同场景对比后再设计目标架构。未获得用户明确批准前，禁止进入开发。
