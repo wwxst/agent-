@@ -364,11 +364,11 @@ Remote spawn 使用 `gapSurviveEnabled:true`，并按 Host 能力开启 stdin of
 
 | File | SHA-256 | Anchors |
 |---|---|---|
-| `index.pre.js` | `e1b5dfd2f91c9f50f4e4c8e35d1c9f4a5c49c19d85b7f3b5e4b8f3fcd3e4b1c7` | package main pre-bootstrap → index.js handoff @966,394 |
-| `index.chunk-C7nJwi7_.js` | `4c7d7e0c7bb2d14a6c4f2d7f9e0a5b2c8d7e9f0a1b2c3d4e5f60718293a4b5c6` | buildStartSdkOptions @675,805；createCanUseTool @172,293；handleToolPermission @241,625；respondToToolPermission @249,986；SessionQueryHandler CC @546,318；warmSession @1,158,279；loadSessionRecords @1,769,645；writeSessionToDisk @1,790,867；teardownSession @1,875,258；startSession @1,916,481；interruptSession @1,952,493；spawnSessionQuery @2,032,624 |
+| `index.pre.js` | `b3be29dbc19a4557c78d27801a79258b320d90d6207c16f9be5b1042790c1687` | package main pre-bootstrap → index.js handoff @966,394 |
+| `index.chunk-C7nJwi7_.js` | `f69b5dae07191e32fc528591aa741e9e3717127b19d52d3c463a32295d16cbe7` | buildStartSdkOptions @675,805；createCanUseTool @172,293；handleToolPermission @241,625；respondToToolPermission @249,986；SessionQueryHandler CC @546,318；warmSession @1,158,279；loadSessionRecords @1,769,645；writeSessionToDisk @1,790,867；teardownSession @1,875,258；startSession @1,916,481；interruptSession @1,952,107；spawnSessionQuery @2,032,624 |
 | `index.chunk-J7YnW_mh.js` | `80d308de49d2eacee72a561734b05e32209783de7772881036e5608cfd725a42` | ProcessTransport @1,160,304；ProcessTransport.initialize @1,161,387；ProcessTransport.close @1,170,126；Query xOe @1,176,386；handleControlRequest @1,183,952；handleControlCancelRequest @1,184,963；Query.initialize @1,190,254；Query.interrupt @1,195,696；Query.request @1,202,061；setMcpServers @1,207,253；connectSdkMcpServer @1,210,949 |
-| `index.chunk-BT1aFaVF.js` | `a4d3a8f6c1b2e9d7f0a5c4b3e2d1f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d` | Session serializer Cj @595,118 |
-| `index.chunk-BRvO7fVg.js` | `7d5c3b1a9f8e6d4c2b0a1f3e5d7c9b8a6f4e2d1c0b9a8f7e6d5c4b3a29180706` | private atomic writer li/Ttt @266,216；temp file _i @271,044；IPC sender validation / ipcMain.handle @6,649,153；senderFrame validator fXa @6,558,310 |
-| `index.chunk-C1QWjcyS.js` | `8f7e6d5c4b3a29180706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0` | RemoteProcess Ct @42,353；RemoteServerController.createSpawnFunction @253,150 |
+| `index.chunk-BT1aFaVF.js` | `50bc49b37e9b978180f3a1640210fdd9c25c629d15c8df8e067f6a05faa729b8` | Session serializer Cj @595,118 |
+| `index.chunk-BRvO7fVg.js` | `1a87853c63ad0e52ffa69e2de27004dc0dfccfb5394f23f3daaf5829da6b7976` | private atomic writer li/Ttt @266,216；temp file _i @271,044；IPC sender validation / ipcMain.handle @6,649,153；senderFrame validator fXa @6,558,310 |
+| `index.chunk-C1QWjcyS.js` | `90c801e3100671c06bc7711b142b937762a00b17a62282ca98b028e5104792b3` | RemoteProcess Ct @42,353；RemoteServerController.createSpawnFunction @253,150 |
 
 **证据等级：** Desktop / SDK 发布版 JS 静态源码；没有运行 Electron、SDK query、CLI child process、Permission UI、MCP server 或 SSH remote host。报告中的运行时竞态和故障行为均为待验证问题，不是已复现 bug。
