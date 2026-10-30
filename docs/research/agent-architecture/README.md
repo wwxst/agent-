@@ -46,6 +46,7 @@
 - [报告 38：Claude CLI 远程工具取消、执行账本与迟到结果收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)
 - [报告 39：Claude Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)
 - [报告 40：Claude CLI 后台 Bash 与 MCP Task 的恢复边界](./40-Claude-CLI后台Bash与MCP任务恢复边界-2026-10-30.md)
+- [报告 41：Claude CLI 取消时序矩阵与结果回收边界](./41-Claude-CLI取消时序矩阵与结果回收边界-2026-10-30.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
