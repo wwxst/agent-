@@ -31,17 +31,18 @@
 | 报告 37 | Storage V5 reader 的 read→readRecords fallback、torn tail/无效 JSONL 容错；writerHealth 降级/恢复和 session UUID dedupe 依赖 | 直接复核发布版 JS；尚无 V5 backend 物理持久化或崩溃注入证据 |
 | 报告 38 | fallback abort → session control_cancel_request → Host tool pipeline；call_id/request_id/worker_epoch；Host call ledger、disowned tombstone、outcome query 与 correction | 静态源码；发现 direct cancelled 分支不进入 caller m_e given-up 队列的风险点 |
 | 报告 39 | Bash foreground 进程终止、background listener detach；MCP notifications/cancelled、server handler signal、tasks/cancel 与错误副作用分类 | 静态源码；未运行真实 Shell/MCP server；后台 task 恢复与第三方 MCP 是否响应取消仍未知 |
+| 报告 40 | Bash task registry/output file 分离；普通 MCP auto-background 与 SEP-2663 Task 区分；metadata/outcome sidecar、resume/reconnect/poll、TaskStop 取消确认边界 | 静态源码；local Bash process restart/reattach、Storage V5 sidecar 物理耐久性、第三方 MCP Task cancel 均未动态验证 |
 
 ## 4. 研究覆盖率
 
 | 子系统 | 状态 | 下一步 |
 |---|---|---|
 | 资料版本、分包和完整性入口 | 已初步盘点 | 核对核心文件与版本来源，建立可导航源码索引 |
-| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38 已补 remote cancel / call ledger / late correction；仍需核验 Storage V5 backend、Shell/MCP 实际取消及完整故障状态机 |
-| Claude CLI 权限、并发和失败恢复 | **部分核验，Shell/MCP 取消链已追到 executor/协议层** | 报告 38/39 已确认 Bash foreground SIGTERM→约 1.5s 后 SIGKILL 尝试、background 移除 abort listener；MCP 使用 notifications/cancelled，Task 使用 tasks/cancel；第三方实际停止、副作用与 caller late-query 缺口仍需核验 |
+| Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–40 已补 remote cancel/call ledger、Bash/MCP executor、后台任务状态与恢复边界；仍需核验 Storage V5 backend、真实进程/服务器取消及完整故障状态机 |
+| Claude CLI 权限、并发和失败恢复 | **部分核验，后台任务恢复边界已追到** | 报告 38–40 已确认 remote cancel/ledger、Bash foreground kill 与 background listener detach、MCP ordinary auto-background 与 SEP-2663 sidecar restore；仍需完成取消时序矩阵及真实 Shell/MCP side effect 验证 |
 | Claude CLI 上下文压缩与 Subagent | **初步定位，未完成** | 已确认每轮前 autocompact 与 prompt-too-long reactive 路径；subagent 父子状态和完整压缩转移待查 |
 | Desktop / SDK 启动、Session、双向协议 | 有初步材料，未完整核验 | 逐一核对请求关联、消息方向、取消、idle/exit 与权限代理 |
-| MCP、宿主工具桥接和安全边界 | **取消协议已部分核验** | 报告 39 已追 Client notifications/cancelled → Server handler AbortSignal，以及 tasks/cancel；继续核对第三方 server、task executor 和后台任务生命周期 |
+| MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–40 已追 notifications/cancelled、tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
@@ -51,26 +52,24 @@
 
 ### A. Claude CLI 的完整执行链（进行中）
 
-历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)、[39：Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)。
+历史研究索引：[33：入口/Loop](./33-Claude-CLI执行链源码复核-2026-10-29.md)、[34：transcript/路由](./34-Claude-CLI会话持久化与工具路由复核-2026-10-29.md)、[35：remote Host/reconcile](./35-Claude-CLI远程工具Host与恢复状态机复核-2026-10-29.md)、[36：写入失败和 fallback](./36-Claude-CLI写入失败与流式Fallback收敛-2026-10-29.md)、[37：Storage V5 reader 与 WriterHealth](./37-Claude-StorageV5读取修复与WriterHealth证据-2026-10-29.md)、[38：远程工具取消与执行账本收敛](./38-Claude-CLI远程工具取消与执行账本收敛-2026-10-30.md)、[39：Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)、[40：后台 Bash 与 MCP Task 恢复边界](./40-Claude-CLI后台Bash与MCP任务恢复边界-2026-10-30.md)。
 
-报告 39 新增确认：
+报告 40 的新增确认：
 
-- Bash foreground 的 AbortSignal 到达 LFe；spawn 前已 abort 则不启动进程；spawn 后进入 kill；POSIX 尝试 SIGTERM，约 1.5 秒后尝试 process-group SIGKILL，Windows 使用 taskkill /T /F。
-- Bash background() 会移除原 abort listener，后台命令脱离原 per-tool controller；命令完成后也会移除 listener。foreground kill 不回滚已提交副作用。
-- MCP Client Protocol.request 发送 notifications/cancelled；SDK Server 将其转为 RequestHandlerExtra.signal abort。第三方 server 是否尊重 signal 未验证。
-- MCP Task 取得 task handle 后会 best-effort 发 tasks/cancel；SDK handler 更新 task status、清空 task queue，不足以证明底层执行进程停止。
-- Claude MCP adapter 对 timeout/connection/protocol error 提示“可能已运行并有副作用”，而不是一概声称未执行。
+- Local Bash task registry 由 Engine State 的 tasks map 管理；task_started/task_updated 是独立事件。stdout/stderr 另存 session-scoped output file；get_task_output 在 registry entry 缺失时仍可凭合法 local_bash task ID 读取文件，但这不恢复 process handle。
+- Bash background() 移除原 AbortSignal listener；TaskStop 仍可经 registry 调用 shellCommand.kill。background() 不调用 child.unref()；detach() 才 unref，但 source-only bundle 未找到该 LFe.detach 的直接调用点。CLI exit/crash 后后台 child 是否存活/可接管仍未知。
+- 普通 MCP auto-background 解除 parent signal 与原 MCP request 的关联，用进程内 registry/Promise 继续执行；返回文本明确说不 survive exiting this session，没有 MCP sidecar。
+- SEP-2663 MCP Task 使用 mcp-tasks metadata sidecar，resume 时重建 task registry、reconnect 并继续 polling；terminal outcome 另写 outcome sidecar，未进入 transcript 的结束通知可在 resume 时补发。
+- SEP-2663 TaskStop 只有在 server connected 且 transportFingerprint 匹配时才发送 tasks/cancel；本地仍会标记 killed 并删除 metadata，不等待 server 确认。这是静态可见的 cancel-unconfirmed 风险。
 
 **下一轮优先：**
 
-1. 追 background Bash task registry、output retrieval 和 task ID 在 fallback/turn abort/session restart 后的生命周期；核对后台进程是否可重新发现、停止和取回结果。
-2. 追 MCP task registry、driveAbort、polling、tasks/cancel 与 attempt abandonment 的关系；明确 task status cancelled 与真实 executor 停止的区别。
-3. 完成取消时序矩阵：Bash spawn 前/后、background 后；MCP request 发送/handler 开始/task handle 返回/task 完成/response 丢失；每个阶段列 caller、Host/server、journal、可恢复状态。
-4. 继续核对 direct-cancel 是否存在其他 caller-side notice/query；动态行为未验证。
-5. 然后研究 Subagent、context compaction、Desktop/SDK 与 Pi 完整源码，最后统一比较并提出独立目标架构。
+1. 完成取消 timing matrix：Bash spawn 前/后、foreground/background/TaskStop；MCP ordinary auto-background；SEP-2663 create/handle/cancel/reconnect/restore。每阶段列 caller/registry/server/journal/结果可恢复性。
+2. 深入核对 Bash background task 在 turn abort、fallback、final response、session exit、process crash 时的状态变化；厘清 backgroundEndsWithFinalResponse 和 remote backgroundShellsKeptElsewhere 的边界。
+3. 核对 SEP-2663 的 worker wake、transportFingerprint 变化、TTL、metadata write failure、outcome write failure与 restore feature guard。
+4. 转向 Subagent：parent-child ownership、task registry、stop propagation、worker exit、resume、context isolation。
+5. 再研究 context compaction、Desktop/SDK 与 Pi 完整源码；完成统一比较后才提出独立目标架构。
 
-### B. 再研究 Desktop / SDK
-### B. 再研究 Desktop / SDK
 ### B. 再研究 Desktop / SDK
 
 从 Desktop 如何创建宿主进程开始，跟踪双向协议、request correlation、Session/Process 生命周期、权限 broker、MCP 桥接、取消与关闭语义。
@@ -101,14 +100,14 @@
 
 ## 8. 本轮续接标记
 
-本轮继续检查 CLI 2.1.304 的 Bash runner 与 MCP SDK/adapters，新增 [报告 39：Claude Bash 与 MCP 工具取消语义](./39-Claude-Bash与MCP工具取消语义-2026-10-30.md)。
+本轮继续检查 CLI 2.1.304 的 local Bash task registry、output file、MCP auto-background、SEP-2663 task sidecar 与 resume/TaskStop 路径，新增 [报告 40：Claude CLI 后台 Bash 与 MCP Task 的恢复边界](./40-Claude-CLI后台Bash与MCP任务恢复边界-2026-10-30.md)。
 
 **本轮已证实：**
 
-- Bash foreground signal 到达 LFe；spawn 前 abort 返回“Command aborted before execution”；spawn 后尝试 SIGTERM，约 1.5 秒后对 process group 尝试 SIGKILL；Windows 使用 taskkill /T /F。
-- Bash background() 会移除原 AbortSignal listener；后台任务不再受该 per-tool signal 管理。完成的命令同样移除 listener。
-- MCP 普通 call 通过 notifications/cancelled 传 requestId/reason，SDK Server 将它映射为 request handler AbortController.abort。
-- MCP Task 在拿到 task handle 后会 best-effort 发送 tasks/cancel；SDK 默认 handler 更新 task status 并清队列，但不证明底层 task process 已停止。
-- Claude MCP adapter 对 timeout/lost connection/protocol failure 会提示可能已运行并产生副作用；明确 auth/consent refusal 才报告 did not run。
+- Bash wh(engineState,setEngineState) 将 task records 放在 Engine State 的 tasks map，并单独发 task_started/task_updated 事件；output file 按 session/task ID 存放。get_task_output 可在 registry entry 缺失时尝试读取 output file，但 stop_task 仍依赖 task registry/agent alias 找到 task。
+- Bash background() 移除原 AbortSignal listener；TaskStop 可通过 registry kill。background() 不 unref child，detach() 才 unref；没有动态证据证明本地后台 Bash 能跨 CLI 进程退出后恢复/接管。
+- 普通 MCP auto-background 通过解除 parent AbortSignal 关联来让 request 继续；依赖进程内 task registry 与 Promise，源码明确提示不 survive session exit。
+- SEP-2663 MCP Task 保存 metadata sidecar；resume helper 先 replay outcome sidecar，再 restore metadata、reconnect/poll。terminal outcome sidecar 用 atomic 写入语义，metadata 用 inPlace 写入语义；底层 Storage V5 耐久性仍未知。
+- SEP-2663 TaskStop 只在 MCP server connected 且 transportFingerprint 匹配时 best-effort 发 tasks/cancel；无确认仍标记 killed 并删除 metadata。可能留下 server-side work 且失去本地 reattach 记录。
 
-**下一次新对话第一任务：** 追 background Bash task registry 和 MCP task registry 在 fallback、turn abort、session restart 后的恢复/停止/结果取回；随后完成取消时序矩阵。报告 33–39 均为静态源码研究，不是最终架构裁决；不允许开始开发。
+**下一次新对话第一任务：** 完成取消 timing matrix，并继续核对 Bash backgroundShells、MCP worker wake/TTL/restore guard；随后转向 Subagent 生命周期和 context compaction。报告 33–40 都是静态源码研究，不是最终架构裁决；不允许开始开发。
