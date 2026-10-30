@@ -55,7 +55,7 @@
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
-| Pi Agent Core / Durable / Chord | **Core v1.4.0 首轮静态研究完成；Durable / Chord / coding-agent 未完成** | 报告 52 已 pin release commit 4a080252、核对核心源文件与旧动态实验 source blob 一致，并追 Agent/Loop、事件屏障、队列、工具并发、abort/error/truncation。下一步独立研究 pi-durable Task/Harness/Storage/Recovery、Chord commit/outbox/storage，再研究 coding-agent 组合层 |
+| Pi Agent Core / Durable / Chord | **Core v1.4.0 首轮静态研究完成；独立 Durable / Chord / coding-agent 未完成** | 报告 52 已 pin release commit 4a080252、核对核心源文件与旧动态实验 source blob 一致，并追 Agent/Loop、事件屏障、队列、工具并发、abort/error/truncation。关键边界：pi-durable 不依赖 pi-agent-core，而是直接基于 pi-ai + Chord 实现自己的 GenerationTask / ToolTask Agent runtime。下一步分别研究两套执行引擎与存储恢复 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
 | 新目标架构 | 未开始 | 等源码研究与需求澄清完成后提出多方案 |
 | 用户确认 | 未开始 | 完整方案交付后等待明确批准 |
@@ -107,7 +107,7 @@
 
 已固定上游仓库 earendil-works/pi、release tag v1.4.0、release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。报告 30–31 的动态发布包为 1.4.0；本轮验证 agent.ts / agent-loop.ts / types.ts / README 的 blob SHA 与 release tag 完全一致，package.json 仅 devDependency vitest 版本不同。npm tarball dist 字节级校验仍未完成，不能声称二进制构建可复现。
 
-Core 首轮已追 Agent 单活动 Run、内存 transcript、steer/followUp queue、high-level awaited event barrier 与 low-level EventStream observational 区别、Loop 两层调度、context transform/conversion、tool preflight/parallel completion ordering、abort/error/truncation。重要边界：v1.0.0 已将 Session / Storage / Harness / Compaction 等从 pi-agent-core 移出到独立 pi-durable。
+Core 首轮已追 Agent 单活动 Run、内存 transcript、steer/followUp queue、high-level awaited event barrier 与 low-level EventStream observational 区别、Loop 两层调度、context transform/conversion、tool preflight/parallel completion ordering、abort/error/truncation。重要边界：v1.0.0 已将 Session / Storage / Harness / Compaction 等从 pi-agent-core 移出到 pi-durable；但 pi-durable 并不是 Core Agent 的存储 adapter，它不依赖 pi-agent-core，而是直接基于 pi-ai + Chord 实现自己的 GenerationTask / ToolTask Agent runtime。两套执行引擎必须并列研究。
 
 **下一步：**
 1. 研究 pi-durable Harness / Conversation / Task / Scheduler / ToolTask / ownership / abort / restart / replay / nested calls / compaction / storage。
@@ -145,6 +145,7 @@ Core 首轮已追 Agent 单活动 Run、内存 transcript、steer/followUp queue
 - 固定上游 earendil-works/pi，v1.4.0 tag 解析为 release commit 4a080252f06caf63a525d7873c5d94d3c23887e0。
 - pi-agent-core@1.4.0 依赖 pi-ai@1.4.0、typebox 1.3.27，要求 Node >=22.19.0；Core exports 只含 Agent / Loop / Proxy / StreamFn setter / types。
 - v1.0.0 changelog 明确移除 AgentHarness、Session / Storage、durable runtime、compaction、skills 等，转由 pi-durable 承担。
+- pi-durable package.json 不依赖 pi-agent-core；其 generation.ts 直接使用 pi-ai 并实现 GenerationTask，harness/agent.ts 有自己的 Agent / AgentDoc / Registry contract，ToolRegistration replay enum 为 safe/unsafe。它是独立 Durable Agent runtime，不是 Core Agent 的持久化 wrapper。
 - 报告 30–31 动态测试所用发布包 1.4.0 的 Agent runtime 核心源码已通过 blob SHA 对齐 v1.4.0 release tag；npm tarball dist byte-for-byte parity 仍未知。
 - 高层 Agent await subscribers；低层 agentLoop EventStream 只排队，不提供 async consumer persistence barrier。
 - Agent 是单 activeRun；steer 在当前工具批次后注入，followUp 在自然停止点注入；两类队列默认 one-at-a-time。
