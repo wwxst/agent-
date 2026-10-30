@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（本轮研究）  
+> 最后更新：2026-10-30（报告 49：Desktop 本地进程与冷恢复）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -40,6 +40,7 @@
 | 报告 46 | Transcript / Agent resume / Remote Agent 联合恢复矩阵：read→readRecords 条件、4 MiB 分页与 256 MiB cap、JSONL invalid/torn tail、5 MiB fast scanner、dRt row normalization、hdo 多次 compact / preserved UUID / anchor、RMt/Sdo parent fallback、bdo parallel tool_result、Remote Agent cursor/metadata/archive 故障矩阵 | 静态源码；未运行真实 Storage V5 provider / Cloud Session；null cursor 服务端语义、archived 语义、crash 时序和启发式跨 Agent 影响仍未知 |
 | 报告 47 | Desktop 3.1623.1 / SDK host startup、RemoteServerController、Session query lifecycle 与双向协议第一轮追踪 | 静态源码；helper server-side、完整权限收敛和进程恢复仍需核验 |
 | 报告 48 | RemoteProcess sequence replay / stdin offset / orphan reaper；persisted adoption policy；MCP 多拓扑；ToolPermissionBroker；EIPC event 与 snapshot recovery | 静态源码；SSH helper 服务端、动态 crash/side-effect、Desktop 全生命周期仍未知 |
+| 报告 49 | Local spawn vs SSH custom spawn；Turn interrupt / Session stop / Query close / OS process exit；WarmLifecycle / Idle pause；app quit；Local / SSH Waiting Input 恢复与 quit auto-resume | 静态源码；native process job 语义、真实 process exit、queue 对账歧义与故障恢复仍需动态验证 |
 
 ## 4. 研究覆盖率
 
@@ -49,7 +50,7 @@
 | Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–41 已补 remote cancel/call ledger、Bash/MCP executor、后台任务恢复与取消时序矩阵；报告 42–43 已补 Agent/Subagent lifecycle、compaction 与 transcript resume reader；报告 44 已追 Remote Agent Cloud Session create/poll/restore/archive；报告 45 已追 Storage V5 default injection seam、configHome guard、keyspace 与 sidecar write discipline；报告 46 已建立 reader/Agent resume/Remote Agent 联合恢复矩阵；仍需核验 provider physical durability、真实进程/服务器取消及完整故障状态机 |
 | Claude CLI 权限、并发和失败恢复 | **本地与远端任务路径已有静态状态机；动态验证未做** | 报告 38–41 覆盖 Remote Host/Bash/MCP 取消；报告 44 覆盖 Remote Agent Cloud Session create/poll/restore/archive 与 permission relay；仍需验证 event cursor replay、archived result recovery、archive ack、真实 Shell/MCP/cloud side effects |
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
-| Desktop / SDK 启动、Session、双向协议 | **第一轮启动链与第二轮 SSH adoption / MCP / permission / event IPC 静态追踪已完成；尚未完整** | 报告 47–48 已追 Desktop host process / SDK query 启动、RemoteProcess replay 与持久化接管、policy/hook/permission/MCP settle、MCP 多拓扑、ToolPermissionBroker、EIPC event + snapshot。继续核对 local spawn 与 SSH 对照、SDK options/hooks/canUseTool 注入、stop/cancel/idle/exit/restart；helper server-side source 与动态恢复未知 |
+| Desktop / SDK 启动、Session、双向协议 | **三轮主要生命周期静态追踪已完成；callback 与动态验证仍未闭环** | 报告 47–49 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP / permission / EIPC、local spawn 与 SSH custom spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复与 auto-resume。继续闭环 canUseTool / Hooks / hook_callback 的所有类型与 abort/timeout/cleanup、renderer reload/pending request replay；native process job / SSH helper server-side 与真实 crash 行为未知 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
@@ -85,9 +86,9 @@
 
 1. 仅在可获得真实 Storage V5 provider、Cloud Session API contract 或隔离环境时，验证 V5 durability、Cloud event cursor、archive acknowledgement、permission relay 与真实副作用；否则维持未知，不以 mock 代替服务端事实。
 2. 报告 46 已将多次 Full/Reactive compact、preserved UUID / anchor 缺失、parentUuid cycle、JSONL torn tail、V5 readRecords fallback、Remote Agent null cursor / metadata loss / archived terminal result 放入统一状态矩阵；矩阵中的所有 crash 结果仍需动态测试。
-3. **下一步转入 Desktop/SDK Host session lifecycle**，完成 host process、双向协议、request correlation、permission broker、MCP bridge、cancel/idle/exit。
-4. 随后完成 Pi Core 固定上游源码与发布包核对。
-5. 两者完成后统一比较成熟方案，再提出独立目标架构与备选方案。
+3. Desktop/SDK 已完成报告 47–49 的主要生命周期静态追踪；继续闭环 canUseTool / Hooks / hook_callback 的全 callback 类型、abort/timeout/cleanup，以及 renderer reload / pending request replay。native process job 和 SSH helper server-side 语义若无法取得，保留未知。
+4. 随后固定 Pi Core 上游 commit 与实际发布包，核对源码 / 包一致性后逐模块研究 loop、event、tool、context、session、extension、cancel 与错误恢复。
+5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
 
 ### B. Desktop / SDK（报告 47–48 已完成两轮静态追踪，仍有未决边界）
 
@@ -123,28 +124,29 @@
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md) 和 [报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)。
+本轮新增 [报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)、[报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md) 和 [报告 49：Desktop 本地进程关闭、Idle 与 Session 冷恢复状态机](./49-Claude-Desktop本地进程关闭Idle与Session恢复状态机复核-2026-10-30.md)。
 
-**报告 47 的范围：** 从 Desktop host startup 进入 SDK query/session 启动，追 RemoteServerController、process RPC、双向消息与 Session / Process 关系。它是第一轮静态追踪，不代表 Desktop/SDK 已研究完成。
+**报告 49 本轮新增源码证据：**
 
-**报告 48 本轮新增源码证据：**
+- SDK ProcessTransport 默认通过 child_process.spawn 创建 local CLI；Desktop SSH backend 注入 spawnClaudeCodeProcess / RemoteProcess。Local 使用 CLI session ID cold resume，SSH 可 hot reattach 同一 process identity。
+- Desktop 将 local onProcessSpawned PID 交给 native createProcessJob（若 binding / feature gate 支持），Session initialize 后保存 job handle；teardown 调用 endProcessJob。native 实现不可读，不能从 JS 参数推断 job object 的完整 kill / detach 语义。
+- SDK Query.interrupt 发送 subtype=interrupt，支持 cancel_queued 并返回 still_queued / cancelled；它与 Query.close、Session stop、OS process exit 是不同操作。
+- Desktop interruptSession 优先 soft interrupt；ack timeout / error 才升级 stop。SSH host down / replaying / busy / ping 不确定时保留 queued interrupt，不贸然 kill 远端进程。
+- Query.close 只启动 cleanup，不返回 cleanup Promise；cleanup 关闭 MCP / control request / input stream，waitForExit 最多约 2 秒。ProcessTransport.close 结束 stdin 后延迟 TERM / KILL；Desktop teardownQuery 不 await Query.close，因此 Query object teardown 不构成 OS process exit acknowledgement。
+- Desktop watchLocalCliTeardown 是 telemetry watcher，不负责 kill；轮询 root PID / descendants，app_quit / appQuitting 路径跳过该 watcher。
+- WarmLifecycle 的 idle timer 受可见性与后台工作影响。类本身默认 15 分钟，但 LocalSessionManager 传入 Xf：unattended 固定 15 分钟，普通 Session 使用 setting 4041267332，缺失 / 非法 / <=0 时不 arm，正值 clamp 至少 60 秒。
+- local backend shouldKillOnIdlePause=true；SSH / WSL 为 false。普通 SSH / WSL idle timeout 不杀远端 CLI；credential_revoked 是不同的强制 teardown 路径。CliGovernor 的 memory-pressure eviction 与 idle timeout 分离。
+- stopAllOnQuit 将 local sessions 交 stopSession(app_quit)，而 SSH sessions 走 markSshSessionAtExit / waiting-input preservation，不进入 local stop list；随后 flush SessionPersistence 与 WaitingInput。
+- loadSessionRecords active-first、每批 8 并发、单个 Session JSON 10 MiB 上限，恢复时标记 processGoneReason=app_relaunch。Runtime Query / inputStream / OS process 不从 Session JSON 直接复原。
+- Local Waiting Input 通过 UUID / mergedSendUuids / text-prefix 与 CLI transcript 对账；transcript 不可读时延迟一个 launch 再恢复。SSH cleanShutdown=false 则丢弃无法确认是否已送达的 waiting input，偏向避免重复远端副作用，存在输入丢失 tradeoff。
+- quit auto-resume 分为 warm Session / process 和后续决定是否 send auto-continuation 两阶段，不会无条件重放旧 prompt。
 
-- RemoteProcess 使用 process ID + stream sequence 管理远端 CLI；stdout replay checkpoint 对齐完整行边界，skipBytes 处理已交付前缀；stdin 采用 byte offset 与 stdinApplied watermark。
-- checkpointBarrierBeforeStdin 先调用 Session checkpoint sink 并等待 persistence flush，再发送 stdin；但 sink 失败会 fail-open 继续发送，不能称为原子提交。
-- reattach gap 不是一律忽略：只有 gap-survive gate 与 consumer 等条件允许时，才 resync 到下一个换行；否则 abandon / unadoptable。
-- orphan reaper 在 spawn 前执行，账本最多 4 个 process ID，并结合 hostKey、daemonInstanceId、killAndWait 支持情况及 foreign-daemon 等待窗口避免误删。
-- transport rebind 的 canReattach 只要求 process.reattach；持久化 adoption 的 supportsProcessAdoption 还要求 process.killAndWait 和 process.stdin.offset。
-- persisted adoption 检查 host/person/policy/launcher/hooks/permission/remote-control/MCP 等兼容性；进程接管成功后仍需完成 hook、permission mode、remote control、MCP 和 Session 配置 settle 才能释放 held input。
-- MCP 至少存在 host-run stdio、SSH-spawn stdio proxy、remote connector proxy、direct connector pool、internal server 五种路径；transport 与 tool permission gate 分离。
-- ToolPermissionBroker 保存 pending request，支持 AbortSignal、only-on-card、禁止长期授权、input 校验和 project-config-root fence；MCP transport gate 再验证 tools/list、tools/call 和 per-session authorization。
-- EIPC 对 method/event 做 schema validation 和 origin/top-frame 检查；session_updated 会 microtask coalesce；renderer 同时拥有 getAll/getSession/getTranscript snapshot API。未见 event ack/cursor/replay，因此 event 是通知，不应等同 durable event log。
+**报告 49 的未决问题：**
 
-**报告 48 的未决问题：**
+- Native createProcessJob / endProcessJob 的平台语义、进程树继承、wait / terminate / detach 行为未知。
+- Query.close fire-and-forget 与 app quit、OS process exit、CLI shutdown hook、MCP/Bash child process 的实际时间线尚未动态验证。
+- Local queue 的 text-prefix fallback 在重复 prompt 下可能歧义；SSH unclean shutdown discard 可能丢失输入。均为待验证风险，不是已复现 bug。
+- canUseTool / Hooks / hook_callback 的全部 callback 类型、AbortSignal、timeout、late response 和 cleanup 仍需逐一闭环；renderer reload / pending request replay 也未完成。
+- SSH helper / daemon server-side source 不在可读 bundle 中；sequence ring buffer、stdin offset 去重、killAndWait、process tree 与 daemon identity 语义继续保持未知。
 
-- SSH helper/daemon server-side source 未在可读 bundle 中；sequence ring buffer、stdin offset 去重、killAndWait / process tree 语义、daemonInstanceId 生命周期未知。
-- checkpoint sink 失败时仍发送 stdin；app/OS crash、network partition 下是否发生输入与 checkpoint 分离尚未动态验证。
-- 远端 MCP 子进程在 host restart、Windows job object、Desktop exit 后的真实清理行为未知。
-- permission broker / MCP gate 并发和外部副作用、renderer reload / account switch / parked session 的全量恢复均未动态验证。
-- Desktop local process path、SDK options/hooks/canUseTool 注入、stop/cancel/idle/exit/restart 仍需继续追踪。
-
-**下一轮顺序：** 先完成 Desktop/SDK 剩余生命周期和可获得的 helper server-side 证据；若 helper source 不可得，明确保留未知。随后固定 Pi Agent Core 上游 commit 与发布包，逐模块研究 loop、event、tool、context、session、extension、cancel 和错误恢复。完成同场景对比后再设计目标架构。未获得用户明确批准前，禁止进入开发。
+**下一轮顺序：** 先闭环 Desktop SDK hooks / canUseTool / hook_callback 及 renderer pending request recovery；若 native / helper server-side source 不可得，明确保留未知。随后固定 Pi Agent Core 上游 commit 与实际发布包，完成 loop、event、tool、context、session、extension、cancel 和错误恢复研究。完成 CLI / Desktop / Pi 同场景对比后再设计目标架构。未获得用户明确批准前，禁止进入开发。
