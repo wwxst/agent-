@@ -119,22 +119,24 @@
 
 本轮新增 [报告 46：Transcript 与 Remote Agent 联合恢复状态矩阵](./46-Claude-Transcript与RemoteAgent联合恢复状态矩阵-2026-10-30.md)，承接报告 45 的 Storage V5 provider provenance 研究。
 
-**本轮已证实：**
-
-- Storage V5 的 read fallback 不是通用重试：ByteViewUnsupported 与 EFBIG 分别进入 readRecords paging；分页 4 MiB，fallback 上限 256 MiB，cursor 必须前进；permission failure 返回 inaccessible，其他失败抛 unreadable。
-- JSONL parser 保留有效行、跳过无法解析行；5 MiB 以上有 BCt/Ido fast scanner。tornTailBytes 不会自动补齐缺失消息。
-- GCt.finish 先通过 dRt 规范化可解析但 schema 异常的 rows，再执行 hdo compact relink。dRt 可清理 malformed content 并将 child parentUuid 沿 dropped-row chain 重挂。
-- hdo 以最新 compact boundary 为准；若最新 Reactive preserve 列表缺 UUID，会在 relink/prune 前退出；preservedSegment walk 缺节点/cycle 也退出。若最新 boundary 为 Full 且此前存在 preserved metadata，不会恢复旧 tail；若从未有 preserved metadata，hdo 本身不 prune，活跃链依赖 summary/leaf graph。
-- RMt/Sdo 在 parent 缺失/cycle 时使用最多 5 秒、同 isSidechain 的时间 fallback；Sdo 没有显式 agentId check，是条件性跨 Agent 风险，尚未动态验证。bdo 另按 tool_use_id/sourceToolAssistantUUID + agentId/isSidechain 修复 parallel tool_result。
-- Agent resume 的 KRt 需要目标 Agent sidechain rows 和 leaf；V5 非 permission read failure 变成 load_threw，iee 不走同一 hydration 路径。
-- Remote Agent V5 metadata list/read failure 会返回空 restore 集合；K3t cursor 仅在内存，resume 从 null cursor 开始，output file append-only；runId 仅用于 notification dedupe。O8o archived restore 删除 metadata 并跳过 terminal replay；TaskStop archive 不 await ack 后删除 metadata。
-- 上述都是静态源码事实与条件性风险；没有运行真实 Storage V5 provider、Cloud Session 或 crash injection。
+**报告 45 已确认：**
 
 - CLI entry 的 pinStorageV5FromEnv 使用默认 hFr factory，而当前 hFr 不返回 backend；main/init 接受外部 storageV5EnvPin，并通过 configHome guard 决定是否接纳。
 - Storage V5 采用结构化 namespace/keyspace；transcript、sidecar、task 等是逻辑 key，hostFiles.realPath 是单独的 Host 文件能力。
 - Desktop JS 只看到 SDK logger 消费可选 storageV5，没有找到 Desktop 主进程创建 concrete provider 的调用链；native strings scan 是弱负面证据，不是排除证明。
 - Agent metadata / precompact sidecar V5 write 未指定 publishDiscipline；Remote Agent metadata 与 MCP metadata 用 inPlace；MCP outcome 与 transcript compact 用 atomic；transcript/journal append 未指定 discipline。
 - 本地 On/VQ 采用 temp + rename 并可在特定错误时 fallback inPlace；只有 flush:true 才调用 FileHandle.sync，而 On wrapper 未传 flush。Transcript compact 的专用本地路径显式 sync temp file 后 rename。
-- Storage V5 backend 的具体实现、atomic/inPlace 语义、ack/fsync/目录同步/WAL/远端 quorum 与断电恢复仍未知；本报告没有把 consumer success 当成 durable commit。
+- Storage V5 backend 的具体实现、atomic/inPlace 语义、ack/fsync/目录同步/WAL/远端 quorum 与断电恢复仍未知；consumer success 不能直接视为 durable commit。
+
+**报告 46 本轮新增证据：**
+
+- Storage V5 read fallback 不是通用重试：ByteViewUnsupported 与 EFBIG 分别进入 readRecords paging；分页 4 MiB，fallback 上限 256 MiB，cursor 必须前进；permission failure 返回 inaccessible，其他失败抛 unreadable。
+- JSONL parser 保留有效行、跳过无法解析行；5 MiB 以上有 BCt/Ido fast scanner。tornTailBytes 不会自动补齐缺失消息。
+- GCt.finish 先通过 dRt 规范化可解析但 schema 异常的 rows，再执行 hdo compact relink。dRt 可清理 malformed content 并将 child parentUuid 沿 dropped-row chain 重挂；它不能修复 parser 已跳过的非法 JSONL 行。
+- hdo 以最新 compact boundary 为准；若最新 Reactive preserve 列表缺 UUID，会在 relink/prune 前退出；preservedSegment walk 缺节点/cycle 也退出。若最新 boundary 为 Full 且此前存在 preserved metadata，不会恢复旧 tail；若从未有 preserved metadata，hdo 本身不 prune，活跃链依赖 summary/leaf graph。
+- RMt/Sdo 在 parent 缺失/cycle 时使用最多 5 秒、同 isSidechain 的时间 fallback；Sdo 没有显式 agentId check，是条件性跨 Agent 风险，尚未动态验证。missing-parent fallback 无候选时返回 partial chain；cycle telemetry 与 missing-parent 不能混为一谈。bdo 另按 tool_use_id/sourceToolAssistantUUID + agentId/isSidechain 修复 parallel tool_result。
+- Agent resume 的 KRt 需要目标 Agent sidechain rows 和 leaf；V5 非 permission read failure 变成 load_threw，iee 不走同一 hydration 路径。
+- Remote Agent V5 metadata list/read failure 会返回空 restore 集合；K3t cursor 仅在内存，resume 从 null cursor 开始，output file append-only；runId 仅用于 notification dedupe。O8o archived restore 删除 metadata 并跳过 terminal replay；TaskStop archive 不 await ack 后删除 metadata。
+- 上述都是静态源码事实与条件性风险；没有运行真实 Storage V5 provider、Cloud Session 或 crash injection。
 
 **下一次新对话第一任务：** 从 Desktop 3.1623.1 / SDK wrapper 0.3.304 的 host process startup 开始，追双向协议、request correlation、Session/Process lifecycle、permission broker、MCP bridge、cancel 与 idle/exit；之后完成 Pi Agent Core 上游源码/发布包核对。CLI 报告 33–46 均为静态源码研究，动态 provider/cloud 行为仍未知；不是最终架构裁决，不允许开始开发。
