@@ -90,13 +90,13 @@
 4. 随后固定 Pi Core 上游 commit 与实际发布包，核对源码 / 包一致性后逐模块研究 loop、event、tool、context、session、extension、cancel 与错误恢复。
 5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
 
-### B. Desktop / SDK（报告 47–48 已完成两轮静态追踪，仍有未决边界）
+### B. Desktop / SDK（报告 47–49 已完成三轮主要生命周期静态追踪，仍有 callback / native 边界）
 
-[报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)。
+[报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)；[报告 49：Desktop 本地进程关闭、Idle 与 Session 冷恢复状态机](./49-Claude-Desktop本地进程关闭Idle与Session恢复状态机复核-2026-10-30.md)。
 
-报告 47 追踪 Desktop host startup、SDK query/session 启动、RemoteServerController 与 process RPC 的客户端边界；报告 48 进一步确认 RemoteProcess 的 sequence replay、line-aligned stdout checkpoint、stdin offset、orphan reaper、persisted adoption policy、接管后的 hook/permission/remote-control/MCP settle、MCP 五类拓扑、ToolPermissionBroker 和 EIPC event/snapshot 分工。
+报告 47 追踪 Desktop host startup、SDK query/session 启动、RemoteServerController、双向 control RPC 和 canUseTool 入口；报告 48 追踪 RemoteProcess replay / persisted adoption、MCP 多拓扑、ToolPermissionBroker 与 EIPC；报告 49 补齐 local spawn 与 SSH custom spawn、Turn interrupt / Session stop / Query.close / OS process exit、WarmLifecycle / Idle pause、app quit、Local / SSH Waiting Input reconciliation 与 quit auto-resume。
 
-**仍需完成：** local process spawn 与 SSH path 对照；SDK query options / hooks / canUseTool 的完整注入链；stop/cancel/idle/exit/restart 状态矩阵；Session metadata/transcript 的本地恢复；获取 SSH helper/daemon server-side source 或协议规范。没有服务端证据时，replay ring buffer、stdin 去重、killAndWait 语义必须保持未知。
+**仍需完成：** 逐一闭环 canUseTool / Hooks / hook_callback 的 callback 类型、AbortSignal、timeout、late response 与 cleanup；renderer reload / pending request replay；若可获得，核验 native process job 和 SSH helper/daemon server-side。服务端源码不可得时，replay ring buffer、stdin 去重、killAndWait、process tree/job object 语义必须保持未知；静态结果不能替代真实 crash / side-effect 验证。
 
 ### C. 再研究 Pi Core
 
