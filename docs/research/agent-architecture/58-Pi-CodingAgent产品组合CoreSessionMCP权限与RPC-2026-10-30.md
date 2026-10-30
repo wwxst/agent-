@@ -254,9 +254,9 @@ RPC 的 request correlation 不等于防重复 requestId admission；断线/重�
 | packages/coding-agent/src/core/extensions/runner.ts | 77712e677f91dde65d4d4db906a26b16bbd9de9c | emitToolCall L1249, emitToolResult L1190 |
 | packages/coding-agent/src/core/agent-session-runtime.ts | c1d7655dcc9888fd0bbb70304e6a62b84d3b22fc | new/switch/fork/resume and rebind |
 | packages/coding-agent/src/core/mcp-servers.ts | 1f6414928f37c1ed2b96f51a4918ec17a01a6ae5 | registration vs connection / naming |
-| packages/coding-agent/src/extensions/mcp/index.ts | v1.4.0 source | exposure modes, connect, lifecycle, tool_call waiting |
+| packages/coding-agent/src/extensions/mcp/index.ts | 8a97d7fb2fa32180ca6d034a5c49bbb77452b5e8 | exposure modes, connect, lifecycle, tool_call waiting |
 | packages/coding-agent/src/modes/rpc/rpc-mode.ts | 1c0995d36ec752155f1d13b019728f9343bb263c | JSONL RPC request/response, UI pending, stdout backpressure |
-| packages/coding-agent/docs/security.md | v1.4.0 source | OS permissions, project trust, no default per-tool approval |
+| packages/coding-agent/docs/security.md | 4f0dc290fe1011883cd64c729f07bfe046feb9b1 | OS permissions, project trust, no default per-tool approval |
 | packages/coding-agent/examples/extensions/permission-gate.ts | ce29f7eb5cf925a1449cfdfde3a5b8bc9137e530 | optional tool_call confirmation extension |
 
 **证据等级：** 固定 release source 和官方文档静态复核；没有真实 CLI / MCP / provider / OS crash 动态测试。
