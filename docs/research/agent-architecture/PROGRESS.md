@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 49：Desktop 本地进程与冷恢复）  
+> 最后更新：2026-10-30（报告 51：custom3p-mcp URL Elicitation）  
 > 当前阶段：**源码研究与证据盘点**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -42,6 +42,7 @@
 | 报告 48 | RemoteProcess sequence replay / stdin offset / orphan reaper；persisted adoption policy；MCP 多拓扑；ToolPermissionBroker；EIPC event 与 snapshot recovery | 静态源码；SSH helper 服务端、动态 crash/side-effect、Desktop 全生命周期仍未知 |
 | 报告 49 | Local spawn vs SSH custom spawn；Turn interrupt / Session stop / Query close / OS process exit；WarmLifecycle / Idle pause；app quit；Local / SSH Waiting Input 恢复与 quit auto-resume | 静态源码；native process job 语义、真实 process exit、queue 对账歧义与故障恢复仍需动态验证 |
 | 报告 50 | SDK canUseTool / onUserDialog / Hooks 注入；hook_callback generation、timeout、AbortSignal、cancel 与 late response；CLI reinitialize pending request redelivery；PermissionBroker / UserDialogBroker 等待语义；renderer snapshot recovery 边界 | 静态源码；hosted renderer reload 行为、MCP elicitation、native / helper 语义与动态故障验证仍未知 |
+| 报告 51 | custom3p-mcp HTTP/SSE utility host 与 stdio 路径；URL elicitation consent、MessagePort seq / elicitationId、complete notification、port drain、host shutdown | 静态源码；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 行为未动态验证 |
 
 ## 4. 研究覆盖率
 
@@ -51,7 +52,7 @@
 | Claude CLI 入口与主循环 | **第一轮源码追踪完成，待继续核验** | 报告 33–34 已追入口→main/session driver→YL→su/iu→流式请求→ToolCall 调度→结果回填，并区分 session.append hook 与 transcript writer；已追 record/queue/flush/exit hook；直接文件路径使用 appendFile 或 open/write/close，本层未见 fsync；Storage V5 backend 保证未知。remote Host 路由/reconcile 已有报告；报告 36 新增 writer 失败 Promise/健康状态和流式 fallback 状态清理；报告 38–41 已补 remote cancel/call ledger、Bash/MCP executor、后台任务恢复与取消时序矩阵；报告 42–43 已补 Agent/Subagent lifecycle、compaction 与 transcript resume reader；报告 44 已追 Remote Agent Cloud Session create/poll/restore/archive；报告 45 已追 Storage V5 default injection seam、configHome guard、keyspace 与 sidecar write discipline；报告 46 已建立 reader/Agent resume/Remote Agent 联合恢复矩阵；仍需核验 provider physical durability、真实进程/服务器取消及完整故障状态机 |
 | Claude CLI 权限、并发和失败恢复 | **本地与远端任务路径已有静态状态机；动态验证未做** | 报告 38–41 覆盖 Remote Host/Bash/MCP 取消；报告 44 覆盖 Remote Agent Cloud Session create/poll/restore/archive 与 permission relay；仍需验证 event cursor replay、archived result recovery、archive ack、真实 Shell/MCP/cloud side effects |
 | Claude CLI 上下文压缩与 Subagent | **第一轮静态源码链与状态矩阵已完成；动态验证未做** | 报告 42–46 覆盖 Local Agent ownership/keepalive/TaskStop/resume、worker adoption、Full/Reactive/Precomputed/Microcompact、compact-boundary relink、dRt row normalization、hdo preserved UUID、RMt/Sdo parent fallback、bdo tool_result 修复、Storage V5 readRecords/torn-tail，以及 Remote Agent metadata/cursor/archive 恢复矩阵。多次 compact、坏 transcript、跨 Agent fallback、真实 provider 与 remote worker crash 仍未动态验证 |
-| Desktop / SDK 启动、Session、双向协议 | **主要宿主生命周期与 SDK callback 静态追踪已完成；hosted renderer / native / 动态边界未闭环** | 报告 47–50 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP / permission / EIPC、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、canUseTool / onUserDialog / Hooks、hook generation、timeout / cancel / late response、pending request redelivery 与 snapshot recovery。剩余：hosted renderer reload 实际 hydrate、MCP elicitation 独立路径、native process job / SSH helper server-side 与真实 crash 行为 |
+| Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | Pi Agent Core 完整源码审查 | 部分完成 | 从上游源码核对 API、loop、事件、工具、取消和上下文机制 |
 | 横向架构比较 | 初步报告存在，未定案 | 统一比较维度；历史报告 32 需按报告 33 的新证据重审，不能以旧 Kernel 为前提 |
@@ -91,13 +92,13 @@
 4. 随后固定 Pi Core 上游 commit 与实际发布包，核对源码 / 包一致性后逐模块研究 loop、event、tool、context、session、extension、cancel 与错误恢复。
 5. CLI、Desktop/SDK、Pi 完成同场景对照后，再提出独立目标架构与备选方案。
 
-### B. Desktop / SDK（报告 47–50 已完成主要宿主生命周期与 SDK callback 静态追踪）
+### B. Desktop / SDK（报告 47–51：可读发布版源码主要生命周期追踪完成）
 
-[报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)；[报告 49：Desktop 本地进程关闭、Idle 与 Session 冷恢复状态机](./49-Claude-Desktop本地进程关闭Idle与Session恢复状态机复核-2026-10-30.md)；[报告 50：Desktop SDK Hooks 与 Pending 请求重交付](./50-Claude-Desktop-SDKHooks与Pending请求重交付复核-2026-10-30.md)。
+[报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)；[报告 49：Desktop 本地进程关闭、Idle 与 Session 冷恢复状态机](./49-Claude-Desktop本地进程关闭Idle与Session恢复状态机复核-2026-10-30.md)；[报告 50：Desktop SDK Hooks 与 Pending 请求重交付](./50-Claude-Desktop-SDKHooks与Pending请求重交付复核-2026-10-30.md)；[报告 51：custom3p-mcp URL Elicitation 与 Utility Host 生命周期](./51-Claude-Desktop-custom3pMCP-URL-Elicitation与UtilityHost复核-2026-10-30.md)。
 
-报告 47 追踪 Desktop host startup、SDK query/session 启动、RemoteServerController、双向 control RPC 和 canUseTool 入口；报告 48 追踪 RemoteProcess replay / persisted adoption、MCP 多拓扑、ToolPermissionBroker 与 EIPC；报告 49 补齐 local spawn 与 SSH custom spawn、Turn interrupt / Session stop / Query.close / OS process exit、WarmLifecycle / Idle pause、app quit、Local / SSH Waiting Input reconciliation 与 quit auto-resume；报告 50 闭环 canUseTool / onUserDialog / SDK-host Hooks、hook_callback generation、timeout / AbortSignal / cancel / late response、CLI reinitialize pending request redelivery、PermissionBroker / UserDialogBroker 与 renderer snapshot recovery surface。
+报告 47–49 追踪 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、ToolPermissionBroker / EIPC、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复；报告 50 闭环 canUseTool / onUserDialog / SDK-host Hooks、hook_callback generation、timeout / AbortSignal / cancel / late response、CLI reinitialize pending request redelivery 与 snapshot recovery；报告 51 单独追 custom3p-mcp HTTP/SSE utility host、stdio MCP、URL elicitation native consent、MessagePort seq / elicitationId、complete notification、port drain 和 shutdown。
 
-**剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 行为不在 source-only package 中；MCP elicitation / custom3p-mcp 有独立路径，尚未与 request_user_dialog 完整对照；native process job 和 SSH helper/daemon server-side 语义若无法取得必须保留未知。静态 bundle 分析不能替代真实 Electron / CLI / MCP crash 与 side-effect 验证。
+**剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 不在 source-only package；native process job 与 SSH helper/daemon server-side 语义不可从客户端 JS 推断；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 未动态验证。没有额外证据时保持未知，不虚构服务端保证。
 
 ### C. 再研究 Pi Core
 
@@ -125,27 +126,23 @@
 
 ## 8. 本轮续接标记
 
-本轮新增 [报告 50：Claude Desktop SDK Hooks、权限请求重交付与 Renderer 恢复边界](./50-Claude-Desktop-SDKHooks与Pending请求重交付复核-2026-10-30.md)，承接报告 47–49 的 Desktop 启动、进程、Session、MCP 与权限研究。
+本轮新增 [报告 51：Claude Desktop custom3p-mcp URL Elicitation 与 Utility Host 生命周期](./51-Claude-Desktop-custom3pMCP-URL-Elicitation与UtilityHost复核-2026-10-30.md)，承接报告 47–50。
 
-**报告 50 本轮新增源码证据：**
+**报告 51 本轮新增源码证据：**
 
-- Desktop buildStartSdkOptions 注入 canUseTool、onUserDialog、Hooks、OAuth / Host Auth callbacks，并由 ti / ei 包装；tracking wrapper 记录 Session.cliHostRequests 的 subtype / startedAt，AbortSignal abort 时只清 tracking，不强制终止 callback body。
-- Desktop Base Hooks 注册 PreToolUse、PermissionDenied、Stop、WorktreeCreate / Remove、SubagentStop；SSH 部分 PreToolUse policy / MCP hooks 显式 timeout 30 秒，SSH Stop hook timeout 5 秒。
-- SDK Query 为 Hook callback 建立 callback_id Map；CLI control_request 另有 request_id；Desktop ToolPermissionBroker 又生成自己的 UI requestId，UserDialogBroker 生成 promptId。这些 ID 不可混用。
-- CLI reinitialize 将 pending can_use_tool 与 request_user_dialog 分别放入 pending_permission_requests / pending_user_dialog_requests；SDK 收到后重交付。相同 Query 仍持有 request_id 时由 cancelControllers 去重。
-- hook_callback 不重交付：CLI retireSdkHostHookCallbacks 增加 generation、发送 control_cancel_request，并按 event 给旧 callback safe fallback：PreToolUse / PreModelSwitch deny，UserPromptSubmit / Expansion block + suppressOriginalPrompt，其他 event 返回空结果；随后只替换 origin=sdkHost hooks，保留其他 CLI hook origin。
-- CLI hook timeout 按秒转成 ms，并按事件区分：PreToolUse timeout 没有先前 decision 时 stop / fail closed；UserPromptSubmit / Expansion timeout block；SDK-host Stop / SubagentStop / SessionStart timeout 可继续而不等待旧 answer。
-- SDK Query cancel abort callback signal；CLI sendRequest abort 删除 pending request 并发送 control_cancel_request。迟到 control_response 进入 settleUnknownResponse，timeout dialog late answer / duplicate toolUseId 会被忽略，其他进入 observer / unexpected handler。
-- ToolPermissionBroker 的 5 分钟 timer 是 stall telemetry，不是自动 deny；约 30 分钟后只在 feature / context token / visibility 条件满足时 renotify。UserDialogBroker 有约 5 分钟 response timeout。
-- SessionViewRecord snapshot 包含 pendingToolPermissions 与多个 pending user dialog fields；mainView preload 暴露 getAll / getSession 和 onEvent / onToolPermissionRequest。
-- main_window/index.html 明确其余主 UI 内容从 claude.ai 加载；hosted renderer source 不在 source-only package。Host 有 snapshot recovery surface，但无法确认 hosted web client reload 后实际 hydrate。
-- LocalAgentMode SDK builder 未发现 onElicitation callback；SDK 无 onElicitation 时默认 decline。custom3p-mcp 有独立 elicitation IPC，不能和 request_user_dialog 混为一谈。
+- custom3p-mcp 的 HTTP/SSE server 使用独立 utility process directMcpHost.js；stdio custom3p-mcp 则在 Desktop main process 内直接建立 MCP Client。两条路径不是 LocalAgentMode SDK Query。
+- 两条路径都只声明 elicitation.url capability，并共用 main-process OJt consent handler；LocalAgentMode SDK builder 没有 onElicitation callback，默认 decline 是另一条路径。
+- OJt 只接受 HTTPS URL，hostname 最长 255；拒绝 form mode、Claude auth URL、disabled server 和并发 dialog。Electron native dialog 的按钮是 Open / Cancel，默认 Cancel，120 秒超时；只有 Open 才调用外部 browser。
+- HTTP/SSE utility host 使用每 server MessagePort 与递增 seq；elicitation/create 转为 main process elicitation 消息，elicitationResult 按 seq 返回；notifications/elicitation/complete 通过 serverName + elicitationId 另行转发。
+- directMcpHost 的 RequestManager fallback 是 action=cancel；port close / remote client close 时 drain 所有 pending request。main process shutdown 会 close active connections、dispose utility host，最多等待约 5 秒后 kill。
+- completion waiter helper 存在，但本轮未找到 kJt 直接 callsite；不能据此宣称所有 URL elicitation 都会等待 completion notification。
+- custom3p-mcp elicitation 是 MCP server-level URL consent，不是 Agent canUseTool permission，也不是 UserDialogBroker request_user_dialog。
 
-**报告 50 的未决问题：**
+**报告 51 的未决问题：**
 
-- hosted claude.ai renderer reload / reconnect 后调用 getAll / getSession 的实际时序与覆盖率未知。
-- MCP elicitation / custom3p-mcp elicitation 在 Desktop restart / renderer reload 下的完整恢复未闭环。
-- 不消费 AbortSignal 的 Desktop hook callback 是否在 cancel 后继续执行副作用，需要逐类动态验证。
-- Native process job、SSH helper server-side、真实 Electron / CLI / MCP crash 与 side-effect 仍未知。
+- MCP server 在 client reconnect 后是否重发 elicitation，以及 server-side elicitationId 是否持久化未知。
+- utility process crash / app shutdown 后，remote MCP session / SSE state 的恢复未知。
+- URL elicitation error retry / completion waiter 的实际调用路径未闭环。
+- native dialog 在 window close / account switch / app quit 下的动态行为未验证。
 
-**下一轮顺序：** Desktop / SDK 可读 bundle 范围内的主要生命周期与 callback 链已完成。可获得的 custom3p-mcp elicitation 单独核验后，固定 Pi Agent Core 上游 commit 与实际发布包，确认源码 / 发布包一致性，再研究 loop、event、tool、context、session、extension、cancel 和错误恢复。完成 CLI / Desktop / Pi 同场景对照后再设计目标架构。未获得用户明确批准前，禁止进入开发。
+**下一轮顺序：** Desktop / SDK 可读发布版源码主要生命周期已完成报告 47–51。hosted renderer、native process job、SSH helper server-side 和动态 crash / side-effect 继续标记未知。下一步固定 Pi Agent Core 上游 repository、commit SHA、package version 和 npm tarball，先验证源码与实际发布包一致，再研究 loop、event、tool、context、session、extension、cancel、错误恢复与 persistence / resume。完成 Claude CLI / Desktop / Pi 同场景对照后再设计目标架构。未获得用户明确批准前，禁止进入开发。
