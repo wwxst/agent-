@@ -91,6 +91,8 @@ packages/agent/CHANGELOG.md 的 v1.0.0 Breaking Changes 明确列出从 pi-agent
 
 @earendil-works/pi-durable@1.4.0 README 明确标注 API experimental；不能因为 package 已发布就视为稳定 API。
 
+**进一步核验：pi-durable 并不是包在 pi-agent-core 外面的持久化 adapter。** packages/durable/package.json 的 dependencies 包含 chord、pi-ai、pi-codemode、pi-telemetry 等，但不依赖 pi-agent-core；packages/durable/src/harness/generation.ts 直接使用 pi-ai 的 Model / Message / ToolCall / retry / overflow API，并实现自己的 GenerationTask。packages/durable/src/harness/agent.ts 定义自己的 Agent state / registry / prompt / extension contract。它是同一 monorepo 内独立的 Durable Agent runtime / generation engine，不是 Core Agent class 的 storage plugin。后续必须将两套执行引擎并列研究，而不能假设 Durable 只负责持久化。
+
 ### 2.3 Agent Core 的 source/export 边界
 
 packages/agent/src/index.ts 只 re-export：
@@ -267,14 +269,14 @@ assistant response 的 stopReason === length 且 content 仍有 ToolCalls 时：
 
 AgentTool 类型含 replay?: never | safe 字段，但 packages/agent/src/agent-loop.ts 的执行路径不读取该字段；Core Loop 本身没有持久化 Intent，也不决定 crash 后重放。
 
-pi-durable 的 ToolTask 才消费 replay policy：
+pi-durable 使用自己的 ToolRegistration 类型，字段为 replay?: safe | unsafe，不是 Core AgentTool 类型或相同枚举。其 ToolTask 消费 Durable 自己的 replay policy：
 
 - 在进入 execute 前 commit ToolTaskCheckpoint { phase: execute, arguments, replay }；
 - 默认 replay 为 unsafe；
 - crash recovery 只有当 stored replay 与当前 resolve 到的 tool replay 都为 safe 时才重跑；
 - 其他未完成 effect 以 interrupted / may have partially run 结算，而不是盲目重放。
 
-这证明 replay metadata 是跨包契约：Core 提供 tool metadata，Durable runtime 提供持久化执行语义。两者不能混为一个“Core 已实现安全重放”的结论。
+这不是一个可直接共享的类型级跨包契约，而是两套 runtime 各自声明 replay policy：Core 的 replay 字段当前不由 Loop 执行；Durable 的 ToolRegistration + ToolTask 才形成自己的持久化执行语义。两者不能混为一个“Core 已实现安全重放”的结论。
 
 ## 8. 既有动态实验的复核结论
 
@@ -319,7 +321,7 @@ PR #48 报告 30–31：
 
 - npm tarball 1.4.0 的 dist 文件与 tag 源码构建产物尚未 byte-for-byte 比较。
 - 真实 Provider、工具副作用、取消、进程崩溃、跨进程恢复未运行。
-- pi-durable / Chord 的存储原子性、crash recovery、task scheduler、ownership、replay、compaction 和 session tree 尚未完成系统研究。
+- pi-durable 是独立 GenerationTask / ToolTask runtime，非 pi-agent-core adapter；其存储原子性、crash recovery、task scheduler、ownership、replay、compaction 和 session tree 尚未完成系统研究。
 - pi-coding-agent 如何组合 Agent Core、Durable、MCP、extensions、Session UI / RPC，尚未完整追踪。
 
 ## 10. 对目标架构的非决策性启示
@@ -336,7 +338,7 @@ PR #48 报告 30–31：
 
 ## 11. 下一步
 
-1. 研究 @earendil-works/pi-durable@1.4.0：Harness / Conversation / Task / Scheduler / ToolTask / abort / restart / replay / nested calls / compaction / Session storage。
+1. 将 pi-durable@1.4.0 作为独立 Agent runtime 研究：Harness / Conversation / GenerationTask / Task / Scheduler / ToolTask / abort / restart / replay / nested calls / compaction / Session storage；确认它如何复用 pi-ai 而不依赖 pi-agent-core。
 2. 研究 @earendil-works/chord@1.4.0：document state、commit transaction、outbox、storage adapters、SQLite / JSONL / IndexedDB、checkpoint / delta replay、crash semantics。
 3. 研究 @earendil-works/pi-coding-agent@1.4.0：AgentSession 如何组合 Core、Durable、MCP、extensions、permission、RPC 与 UI。
 4. 对照 PR #48 旧适配原型，重新抽象 Journal / Host / Replay 的职责，不预设必须沿用现有 Kernel。
@@ -361,6 +363,9 @@ PR #48 报告 30–31：
 | packages/agent/test/agent-loop.test.ts | 4a9386a131db7f24b3f309d4b9b2e545277a3fbc | parallel completion order vs ToolResult source order |
 | packages/agent/CHANGELOG.md | 5b970f8d092e2254776025dc124e4cd061eba688 | v1.0.0 Harness removal; v1.4.0 identity |
 | packages/durable/package.json | f5756989cdc757004bffd0b8105f78056a4ee1fc | pi-durable@1.4.0, exports, storage subpaths |
-| packages/durable/src/harness/tool.ts | v1.4.0 source | ToolTask intent checkpoint, replay-safe recovery, nested calls |
+| packages/durable/src/harness/types.ts | 289b5c4e18b0a36267ef5f5e36d9afda2a649ecf | 独立 ToolRegistration replay enum / Agent contract |
+| packages/durable/src/harness/generation.ts | c8d26791cd5a2e26287f73255b75f65ec21c3f22 | GenerationTask 直接依赖 pi-ai；不是 pi-agent-core loop |
+| packages/durable/src/harness/tool.ts | 52bc4a3ada1892645aca5a35f4d90b875edda4ca | ToolTask intent checkpoint, replay-safe recovery, nested calls |
+| packages/durable/src/harness/agent.ts | 64a15bb6a3069eb92f6dbad374a51b4f1f1c2a02 | Durable Agent / AgentDoc / settings / extension state |
 
 **证据等级：** 固定 release tag 源码静态分析 + 既有发布包 fake-based 动态测试复核。没有真实模型、数据库、外部工具副作用、进程崩溃或恢复测试。
