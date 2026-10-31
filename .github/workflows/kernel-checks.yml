@@ -1,7 +1,7 @@
 name: kernel-checks
 on:
   push:
-    branches: [main, 'feat/**']
+    branches: [main, 'feat/**', 'chore/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
