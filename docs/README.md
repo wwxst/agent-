@@ -22,7 +22,7 @@
 | M1-11 | [安全重开与恢复边界](11-M1-会话重开与恢复边界.md) | 已实现 session 重开、未决 Turn 停机保护、校验测试 |
 | M1-12 | [SQLite WAL 事件日志](12-M1-SQLite-WAL-事件日志.md) | 已实现事务 CAS、跨连接与 SIGKILL 测试 |
 | M1-13 | [Writer Lease 与 Fencing Token](13-M1-Writer-Lease-与-Fencing-Token.md) | 租约事务与 fenced append 的实现记录 |
-| M1-14 | [ManagedSessionRunner 自动续租与中断](14-M1-ManagedSessionRunner-自动租约与中断.md) | 已实现按操作自动租约管理与协作中断；尚无独立 Tool Host |
+| M1-14 | [ManagedSessionRunner 自动续租与中断](14-M1-ManagedSessionRunner-自动租约与中断.md) | 自动租约管理与协作中断的首次实现记录；后续 Tool Host、Intent/Receipt 和沙箱能力见后续专题 |
 | M1-15 | [Tool Intent/Receipt 执行审计](15-M1-Tool-Intent-Receipt-执行审计.md) | 执行前持久化、单项收据、结果未知时拒绝重放；仅可信只读工具 |
 | M1-16 | [子进程 Tool Host 与执行账本](16-M1-子进程ToolHost-与执行账本.md) | 独立 Node 子进程、Host 侧 Intent/Fence、STARTED 台账，尚无 OS 沙箱 |
 | M1-17 | [双账本只读对账与证据判定](17-M1-双账本只读对账与证据判定.md) | SQLite 一致只读快照、证据归类与强制无盲目重试 |
