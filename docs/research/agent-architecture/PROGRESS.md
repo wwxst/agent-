@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-31（报告 65–66：可靠性 capability vector、Host Manifest 与 Tool conformance 合同）  
+> 最后更新：2026-10-31（报告 65–67：Storage/EventHub、Host Capability 与 Model Provider 请求/计费恢复合同）  
 > 当前阶段：**源码比较首轮完成；独立架构 v0.2 + Storage/EventHub 合同已提交审阅；A/W/E/X capability profile 与产品需求仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -58,6 +58,7 @@
 | 报告 64 | v0.2 整合设计：Hybrid C 默认候选与 Task-native B fallback；控制面事务/Intent/Receipt；stream-local eventSeq/snapshot consistency/provisional streaming；真实 Host effect evidence 及 recovery；7 项扩展故障门槛 | 设计合同，不是业务实现；未执行 CI/故障测试；报告 60/61 原简化表述已经加修订说明 |
 | 报告 65 | 可靠性保证 capability vector：A0–A3 commit ACK、W0–W2 writer authority、E0–E2 event delivery、X0–X4 effect evidence；Pi SQLite/JSONL 源码与 SQLite/PostgreSQL 官方事务/同步语义；per-stream cursor、snapshot consistency、transactional outbox 重复投递与 client replay | 固定 Pi v1.4.0 源码 + SQLite/PostgreSQL 官方文档 + AWS/Debezium outbox 指南；报告是设计合同，未执行目标环境 crash/HA/outbox tests |
 | 报告 66 | Host Capability Manifest：operationId/attemptId/requestId/workerEpoch/hostInstanceId/effectKey 身份分层；dedup/queryOutcome/notFound/tombstone/receipt retention；cancel/permission/replay 证据；Claude Remote Host vs Pi replay policy；HC-01–18 一致性验收计划 | 固定 Claude CLI/Desktop 发布 bundle 静态报告 35/38/41/50 + Pi v1.4.0 ToolRegistration/ToolTask/测试源码；HC 测试均未执行，Claude Host 服务端持久性仍未知 |
+| 报告 67 | Model Provider Operation：Generation request checkpoint 与 process-restart resend；conversation sessionId 与 requestId 分离；provider/agent/transport/restart 四层 retry；Provider-reported usage / estimated cost / invoice 三账本；ModelCall Ledger 与 MC-01–14 验收计划 | Pi Durable/AI v1.4.0 GenerationTask/ProviderDoc/ProviderRetry/OpenAI/Anthropic/Codex adapter/Usage 源码 + Claude report36；没有真实 Provider billing/crash 实验 |
 
 ## 4. 研究覆盖率
 
@@ -71,7 +72,7 @@
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | 完整源码比较与独立架构研究 | **首轮源码和 12 同场景对比完成，架构 v0.2 与协议/安全修订已提交待审阅；真实故障验证未执行** | 报告 59 提供比较；60–61 是初版架构/验收；62 定义 Host Operation/UNKNOWN 和 late receipt；63 审查权限/沙箱/历史删除及 Hybrid/Task-native 取舍；64 整合 v0.2 事务、UI event cursor、Task/Host 状态与崩溃恢复。报告 60/61 原断言已注明修订；**未获开发批准** |
 | 横向架构比较 | **报告 59 已完成首轮 12 场景对照，待真实故障证据** | 在 v0.2 中验证 external effect/permission/fencing 的边界；旧报告 32 不作为最终结论 |
-| 新目标架构 | **报告 60–66 已形成 v0.2 + Storage/EventHub/Host Capability 合同候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择 A/W/E/X capability profile、Host/sandbox、Context erasure、实际工具幂等能力；明确各 Host manifest 的可信证据与 conformance 测试门槛 |
+| 新目标架构 | **报告 60–67 已形成 v0.2 + Storage/EventHub/Host Capability/ModelCall 合同候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择 A/W/E/X capability profile、Host/sandbox、Context erasure、实际工具幂等能力；明确各 Host manifest 的可信证据与 conformance 测试门槛，并决定 Provider request/usage unknown 的用户可见策略 |
 | 用户确认 | **未获开发批准；等待对 v0.2 和决策项的明确评审** | 用户可要求只修订设计；“继续”不能解释为准许进入开发 |
 
 ## 5. 下一步任务（按顺序执行）
@@ -147,7 +148,7 @@
 本轮新增：
 - [62：Operation stable ID、Host effect evidence 与 UNKNOWN 对账协议](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)
 - [63：Mandatory Permission Authority、OS 沙箱、Context 安全失效与架构 A/B/C 备选](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)
-- [64：v0.2 事务、Event Stream、Task/Operation/Host 恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)、[65：可靠性保证向量、Storage ACK 与 Event Cursor 合同](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)、[66：Host Capability Manifest 与 Tool Execution 一致性验收合同](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)
+- [64：v0.2 事务、Event Stream、Task/Operation/Host 恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)、[65：可靠性保证向量、Storage ACK 与 Event Cursor 合同](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)、[66：Host Capability Manifest 与 Tool Execution 一致性验收合同](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)、[67：Model Provider 请求生命周期、重试与费用不确定性](./67-ModelProvider请求生命周期重试与费用不确定性-2026-10-31.md)
 
 **本轮修正：**
 1. Intent-before-effect、控制面 DB CAS/Worker epoch 仅是必要条件，不可推断任意外部 effect exactly-once。Host ledger/queryOutcome 的 not-found 若不能排除并发执行，也不能证明 never-started。
@@ -199,11 +200,12 @@
 - 报告 65 将旧 R0–R4 标量分解为 A/W/E/X capability vector；SQLite WAL NORMAL 仅为 A1 候选、WAL FULL 为 A2 候选；Postgres 同步副本配置可评估 A3；所有这些都不自动提升 Tool effectEvidence。
 - Outbox 允许重复投递；dispatcher 必须按 stream 保序，客户端 eventId 幂等；Submit ACK 返回实际 ackProfile，丢 ACK 用 clientRequestId 查重。
 - 报告 66 固化 Host manifest、notFound 语义、tombstone/result retention、cancel ack 语义和 HC-01–18 conformance suite；Claude call_id/request_id/worker_epoch 不同，Pi replay=safe 只是注册声明，不是 provider effect 幂等证明。
+- 报告 67 把模型调用纳入 Operation/UNKNOWN 体系：Pi Generation request phase 重开可能重发，sessionId 是 conversation cache/affinity identity 而非 request idempotency key；provider/agent/transport/restart retry 分层；UsageDoc 聚合与 catalog cost estimate 不能证明实际 invoice。
 - Hybrid C 是研究推荐，Task-native B 备选；首发环境与具体协议/技术栈未批准。
 
 ### 未决与下一步
 
-1. 用户审阅报告 59–66，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性，以及 HC manifest/conformance 证据标准。
+1. 用户审阅报告 59–67，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略。
 2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
