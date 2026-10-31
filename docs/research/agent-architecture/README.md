@@ -72,6 +72,7 @@
 - [报告 64：独立 Agent v0.2 事务/事件/任务恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)
 - [报告 65：可靠性保证向量、Storage ACK、Transactional Outbox 与 Event Cursor 合同](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)
 - [报告 66：Host Capability Manifest、UNKNOWN 查询语义与 Tool Execution conformance suite](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)
+- [报告 67：Model Provider 请求生命周期、重试层级与费用不确定性](./67-ModelProvider请求生命周期重试与费用不确定性-2026-10-31.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
