@@ -214,3 +214,23 @@
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
 **开发批准状态：未获得。** 用户“继续”仅表示继续研究。
+
+## 9. 本轮续接标记（LangGraph JS 1.5.3，2026-10-31）
+
+本轮按“继续研究、未批准开发”要求，补充审计 LangGraph JS：固定 langchain-ai/langgraphjs commit b09eb0662358457955131fe0bfec1d7c11e7d7c5，package @langchain/langgraph 1.5.3。源码覆盖 PregelLoop/PregelRunner、task Pending Writes、durability modes、BaseCheckpointSaver、PostgresSaver/SqliteSaver、interrupt、retry/timeout、ToolNode 和 createReactAgent。证据与结论已记录在 [PR #49 本轮研究评论](https://github.com/wwxst/agent-/pull/49#issuecomment-6538428501)。
+
+### 已核验结论
+- LangGraph 是 Agent graph orchestration + task checkpointing 参考，不是与 Temporal/Restate/DBOS 同层的通用 Durable Runtime。
+- Superstep checkpoint 保存完整图状态；task-level Pending Writes 在成功 task 完成时独立保存，兄弟 task 失败后恢复可重用已完成 task 结果。上游测试定义使用 MemorySaver，本轮未运行，不是 SIGKILL/断电证明。
+- 固定源码默认 durability=async；sync 在 superstep 完成后等待 checkpointer promises，不是外部副作用之前的事务屏障。PostgresSaver.put 与 putWrites、SqliteSaver.put 与 putWrites 均分离。
+- interrupt() 需要 checkpointer，resume 按 node 内 interrupt index 消费；官方文档说明 resume 从 node 函数开头重跑，interrupt 前副作用需要幂等。
+- ToolNode 并行工具调用并传递 toolCallId，普通错误默认转 ToolMessage；该 core 路径没有独立 Operation/Effect ledger、强制 Permission Authority 或 OS sandbox。
+- timeout 通过 AbortSignal、Promise.race 和 scope close 丢弃迟到 graph writes；不能据此证明不合作 node 或外部请求已强制终止。
+
+### 未决与下一步
+1. LangSmith/Agent Server 的 worker scheduling、tenant ACL、API auth、multi-region failover 和生产数据库配置尚未审计。
+2. 可继续静态研究 Deep Agents filesystem backend、subagent、permission middleware、HITL 与 sandbox adapter。
+3. LG-01–LG-10 的 storage crash、side effect gap、interrupt replay、timeout、multi-worker 与 tenant isolation 测试仅为未来验证规格，全部 NOT RUN。
+4. 本轮没有运行测试、POC、benchmark、chaos 或真实 Provider/Host 操作；没有修改业务代码、Kernel、开发测试或 ADR。
+
+**开发批准状态不变：未获得。**
