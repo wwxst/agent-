@@ -1,7 +1,7 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-31（报告 70：Restate Agent Controller/Turn、Journal Replay、pending operations、外部效果与 sandbox 边界）  
-> 当前阶段：**源码比较首轮完成；独立架构 v0.2 + Storage/EventHub 合同已提交审阅；A/W/E/X capability profile 与产品需求仍待确认**  
+> 最后更新：2026-10-31（报告 71：Temporal 与 DBOS 执行语义、控制面 API、事务恢复与 Agent 映射）  
+> 当前阶段：**Durable Runtime 源码比较已深入到 Temporal/DBOS 执行器与事务边界；独立架构 v0.2 + Storage/EventHub/Host/ModelCall 合同待用户审阅；A/W/E/X capability profile 与产品需求仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
 ## 1. 当前目标
@@ -61,9 +61,10 @@
 | 报告 67 | Model Provider Operation：Generation request checkpoint 与 process-restart resend；conversation sessionId 与 requestId 分离；provider/agent/transport/restart 四层 retry；Provider-reported usage / estimated cost / invoice 三账本；ModelCall Ledger 与 MC-01–14 验收计划 | Pi Durable/AI v1.4.0 GenerationTask/ProviderDoc/ProviderRetry/OpenAI/Anthropic/Codex adapter/Usage 源码 + Claude report36；没有真实 Provider billing/crash 实验 |
 | 报告 68 | OpenAI X-Client-Request-Id 唯一性与 Pi v1.4.0 conversation sessionId 复用差异；OpenAI Background Response responseId/poll/stream cursor/store/ZDR retention；Anthropic Message Batches batchId/custom_id/24h/29d/cancel partial/非ZDR；provider error typed retry 与 provider-job manifest | Pi v1.4.0 固定 adapter 源码 + OpenAI/Anthropic 官方 API docs（2026-10-31）；文档差异已记录，真实 provider API/create-ACK/crash/retention 测试未执行 |
 | 报告 69 | Durable Execution Runtime 选型：Temporal Event History/Activity、Restate Journal/Virtual Objects、DBOS Postgres Workflow/Transactional DataSource；Restate Agent 双 VO/turn loop/MCP/Shell replay 窗口、operator-kill gap、BSL/版本兼容风险；DR/RS/TM/DB conformance POC 计划 | Temporal SDK 1.25.0、Restate Server v1.8.0 + Restate Agent commit 0d69256、DBOS TS source commit 627990fc；固定源码与官方 docs；所有 POC/benchmark/fault tests 未执行 |
-| 报告 69 | Durable Execution Runtime 选型：Temporal Event History/Activity、Restate Journal/Virtual Objects、DBOS Postgres Workflow/Transactional DataSource；Restate Agent 双 VO/turn loop/MCP/Shell replay 窗口、operator-kill gap、BSL/版本兼容风险；DR/RS/TM/DB conformance POC 计划 | Temporal SDK 1.25.0、Restate Server v1.8.0 + Restate Agent commit 0d69256、DBOS TS source commit 627990fc；固定源码与官方 docs；所有 POC/benchmark/fault tests 未执行 |
 
 | 报告 70 | Restate Agent Controller/Turn 所有权、ask/queue/steer/interrupt 状态机、consumedSteering 对账、Turn pending supervisor、SDK run replay、MCP/Shell crash 窗口、Local/Modal sandbox 与 hard-kill 缺口；审计 restart/MCP/pending/steering 测试定义 | Restate Agent commit 0d69256 + SDK commit e39fcc3；固定源码和测试文件静态复核；本轮未执行测试、Provider/MCP/Shell 请求或故障注入；测试 fixture 不证明真实外部效果 exactly-once |
+
+| 报告 71 | Temporal Workflow History/ID conflict/reuse/Signal/Update/Continue-As-New/Activity cancellation/replay versioning；DBOS functionID/Step retry/transactional PostgresDataSource/owner fencing/send-recv/recovery queue；Postgres chaos 与 zombie timeout 测试定义；Agent runtime mapping | Temporal SDK commit 8f9d0be + DBOS TS commit 627990f；固定源码和测试文件静态复核；本轮未执行测试、benchmark、Postgres chaos 或外部 Provider 请求 |
 
 ## 4. 研究覆盖率
 
@@ -118,7 +119,6 @@
 [报告 47：Desktop / SDK Session 启动与双向协议第一轮](./47-Claude-Desktop与SDKSession启动双向协议及宿主生命周期-2026-10-30.md)；[报告 48：Desktop SSH 进程接管、MCP 拓扑与权限事件链](./48-Claude-Desktop-SSH进程接管与MCP权限事件链复核-2026-10-30.md)；[报告 49：Desktop 本地进程关闭、Idle 与 Session 冷恢复状态机](./49-Claude-Desktop本地进程关闭Idle与Session恢复状态机复核-2026-10-30.md)；[报告 50：Desktop SDK Hooks 与 Pending 请求重交付](./50-Claude-Desktop-SDKHooks与Pending请求重交付复核-2026-10-30.md)；[报告 51：custom3p-mcp URL Elicitation 与 Utility Host 生命周期](./51-Claude-Desktop-custom3pMCP-URL-Elicitation与UtilityHost复核-2026-10-30.md)。
 
 报告 47–49 追踪 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、ToolPermissionBroker / EIPC、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复；报告 50 闭环 canUseTool / onUserDialog / SDK-host Hooks、hook_callback generation、timeout / AbortSignal / cancel / late response、CLI reinitialize pending request redelivery 与 snapshot recovery；报告 51 单独追 custom3p-mcp HTTP/SSE utility host、stdio MCP、URL elicitation native consent、MessagePort seq / elicitationId、complete notification、port drain 和 shutdown。
-
 **剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 不在 source-only package；native process job 与 SSH helper/daemon server-side 语义不可从客户端 JS 推断；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 未动态验证。没有额外证据时保持未知，不虚构服务端保证。### C. Pi / Chord 子系统（报告 52–58 首轮固定发布版源码研究完成）
 
 - [52：Pi Agent Core v1.4.0 / Agent Loop / Tool dispatch](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)
@@ -157,8 +157,7 @@
 1. Intent-before-effect、控制面 DB CAS/Worker epoch 仅是必要条件，不可推断任意外部 effect exactly-once。Host ledger/queryOutcome 的 not-found 若不能排除并发执行，也不能证明 never-started。
 2. 旧 owner 不得提交新 Task transition/越权执行，但可信旧 owner late Receipt 仍应作为 operation effect evidence 被接纳并对账。
 3. Tool Operation 应分为 Control Task phase、Dispatch/Admission、Effect Evidence 和 Cancellation/Policy 四个正交状态域，不能用简单 RUNNING/COMPLETED 单线性状态表达。
-4. Pi Coding Project Trust 和 extension tool_call 并非 mandatory sandbox；任意 shell 获准后内部文件/网络动作需 OS/container 限制，不能逐项由高层审批自动拦截。5. Context summary 必须校验 SecurityRevision/redaction lineage；active model omit 与物理删除、派生 summary/索引/备份清理、第三方 Provider 保留完全不同。
-6. EventSeq 不可简单等于 CommitSeq。需要 conversation/stream-local 序列、同一事务分配、同一 snapshot barrier 读取 cursor；provisional tokens 不占权威 EventSeq。7. 建议 Hybrid C（小型 TurnEngine + Durable Coordinator + mandatory Host）为默认研究候选；若 Loop 无法在真实 side effect 前 await commit/permission，或要求完整 phase recovery，应采用 Task-native B。
+4. Pi Coding Project Trust 和 extension tool_call 并非 mandatory sandbox；任意 shell 获准后内部文件/网络动作需 OS/container 限制，不能逐项由高层审批自动拦截。5. Context summary 必须校验 SecurityRevision/redaction lineage；active model omit 与物理删除、派生 summary/索引/备份清理、第三方 Provider 保留完全不同。6. EventSeq 不可简单等于 CommitSeq。需要 conversation/stream-local 序列、同一事务分配、同一 snapshot barrier 读取 cursor；provisional tokens 不占权威 EventSeq。7. 建议 Hybrid C（小型 TurnEngine + Durable Coordinator + mandatory Host）为默认研究候选；若 Loop 无法在真实 side effect 前 await commit/permission，或要求完整 phase recovery，应采用 Task-native B。
 
 **未来验证仍未执行**：报告 61 FI-01–16 与报告 64 的 FI-02b/04b/05b/07b/10b/13b/16b；不能据静态源码声称真实故障安全。
 
@@ -182,7 +181,7 @@
 
 ## 8. 本轮续接标记
 
-**最新研究/设计修订：** [62：Host Operation 对账](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)、[63：权限/沙箱/架构选型](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)、[64：目标内核 v0.2 集成协议](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)。
+**最新研究/设计修订：** [64：目标内核 v0.2 集成协议](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)、[65：Storage ACK/Event Cursor](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)、[66：Host Capability Manifest](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)、[67：ModelCall 生命周期](./67-ModelProvider请求生命周期重试与费用不确定性-2026-10-31.md)、[68：Provider Job 与保留策略](./68-Provider请求ID与异步Job可恢复性及数据保留合同-2026-10-31.md)、[69：Durable Runtime 选型](./69-DurableExecutionRuntime选型与RestateAgent参考架构源码研究-2026-10-31.md)、[70：Restate Agent 执行状态机与恢复边界](./70-RestateAgent执行状态机与恢复边界源码复核-2026-10-31.md)、[71：Temporal/DBOS 执行语义与事务恢复](./71-TemporalDBOS执行语义与Agent控制面源码对比-2026-10-31.md)。
 
 ### 已核验的源码事实
 
@@ -204,14 +203,14 @@
 - 报告 67 把模型调用纳入 Operation/UNKNOWN 体系：Pi Generation request phase 重开可能重发，sessionId 是 conversation cache/affinity identity 而非 request idempotency key；provider/agent/transport/restart retry 分层；UsageDoc 聚合与 catalog cost estimate 不能证明实际 invoice。
 - 报告 68 发现 Pi v1.4.0 把稳定 conversation sessionId 用作 OpenAI X-Client-Request-Id，与当前 OpenAI per-request uniqueness 文档不一致；补充 OpenAI background response 的 responseId+sequence cursor resume、Anthropic batch 的 batchId/custom_id/retention/cancel semantics，以及 ZDR/HIPAA data policy 约束。
 - 报告 69 比较 Temporal/Restate/DBOS，确认 durable journal/checkpoint 不等于外部 exactly-once；Restate Agent 双 Virtual Object/turn loop 是最接近的 Agent 参考，但存在 operator hard-kill orphan turn、MCP/Shell journal gap、local sandbox 非隔离、多租户/auth 缺失；Restate BSL 1.1 和 1.8.x/SDK 兼容矩阵是选型门槛。Temporal 更成熟且 MIT，但需自建 Agent domain layer；DBOS 在 Postgres transactional step 有优势，外部 effect 仍 at-least-once。
-- 报告 69 比较 Temporal/Restate/DBOS，确认 durable journal/checkpoint 不等于外部 exactly-once；Restate Agent 双 Virtual Object/turn loop 是最接近的 Agent 参考，但存在 operator hard-kill orphan turn、MCP/Shell journal gap、local sandbox 非隔离、多租户/auth 缺失；Restate BSL 1.1 和 1.8.x/SDK 兼容矩阵是选型门槛。Temporal 更成熟且 MIT，但需自建 Agent domain layer；DBOS 在 Postgres transactional step 有优势，外部 effect 仍 at-least-once。
 - 报告 70 固定复核 Restate Agent commit 0d69256 与 SDK commit e39fcc3：Agent/AgentSession 双 VO、短时 Controller、Turn invocation ID、steering batch + consumedSteering successor reconciliation、invocation-local pending Map 由 durable Task/journal replay 重建；SDK run replay 会跳过已完成 closure，但外部 effect 成功而 completion 未 journal 仍可重复。MCP maxAttempts=1 + Idempotency-Key、Shell maxAttempts=1 都不能消除 crash replay；Local sandbox 以 service identity 运行，Modal ref 不是 command receipt；operator hard kill 前未 onTurnEnd 是 reference 文档明确的 production gap。上游 restart test 是确定性 PTC fixture，本轮未执行且无真实 Provider/MCP/Shell effect。
+- 报告 71 固定复核 Temporal SDK commit 8f9d0be 与 DBOS TS commit 627990f：Temporal 的 Update + stable updateId、Update-With-Start MultiOperation、Workflow ID conflict/reuse、Continue-As-New、patched code compatibility 和 Activity heartbeat/cancellation scope 是 Agent 控制面强项；普通 Signal requestId 是 client-generated random UUID，不是业务幂等 key，Update 去重限于同一 Workflow Execution/Run。DBOS 普通 Step callback 与 checkpoint 分开提交，仍 at-least-once；PostgresDataSource 能在同一 PostgreSQL transaction 内提交业务 SQL + transaction_completion，并通过 owner fencing 保护新 owner；DBOS.send 在 Workflow context 内可原子记录 sender operation + notification row，但 Step context 需显式 idempotencyKey。DBOS Step timeout 不强杀不合作 attempt，上游测试明确覆盖 zombie attempt 与新 retry 并发；PostgresChaosMonkey 测试每 5–10 秒重启 Postgres，但本轮未执行。
 - Hybrid C 是研究推荐，Task-native B 备选；首发环境与具体协议/技术栈未批准。
 
 ### 未决与下一步
 
-1. 用户审阅报告 59–70，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
-2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
+1. 用户审阅报告 59–71，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
+2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI/POC/benchmark/chaos 实施测试、修改业务代码/Kernel 或开发 PR。
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
 **开发批准状态：未获得。** 用户“继续”仅表示继续研究。
