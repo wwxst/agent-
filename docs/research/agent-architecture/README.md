@@ -76,6 +76,7 @@
 - [报告 68：Provider Request ID、异步 Job 可恢复性与数据保留合同](./68-Provider请求ID与异步Job可恢复性及数据保留合同-2026-10-31.md)
 - [报告 69：Durable Execution Runtime 选型与 Restate Agent 参考架构源码研究](./69-DurableExecutionRuntime选型与RestateAgent参考架构源码研究-2026-10-31.md)
 - [报告 70：Restate Agent 执行状态机、Journal Replay 与外部效果边界源码复核](./70-RestateAgent执行状态机与恢复边界源码复核-2026-10-31.md)
+- [报告 71：Temporal 与 DBOS 执行语义、控制面 API 和事务恢复源码对比](./71-TemporalDBOS执行语义与Agent控制面源码对比-2026-10-31.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
