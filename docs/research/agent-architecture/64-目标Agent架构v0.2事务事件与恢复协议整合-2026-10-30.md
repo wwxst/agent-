@@ -15,7 +15,7 @@
 
 为什么暂选 C：Pi Core 显示小型 Loop 易扩展；Pi Durable 证明持久 Task/Tool phases 值得独立化；Claude Desktop/Remote Host 显示进程生命周期、权限回调和 effect ledger 必须与模型 Loop 分离。**但这只是设计取舍**，不是对现成框架的性能/稳定性比较实验。
 
-替代 B：全部模型/工具/审批/摘要都是一个 Durable Task Engine 的原生 phase；当 Core Loop 不能在 side-effect 前提供 awaitable admission 屏障、或要求精确跨进程恢复每个模型/工具 phase 时应优先切换 B。替代 A：Core + 事件监听/JSONL 可用于低可靠性 R0，但不能声称 R1+ 执行效果可靠。
+替代 B：全部模型/工具/审批/摘要都是一个 Durable Task Engine 的原生 phase；当 Core Loop 不能在 side-effect 前提供 awaitable admission 屏障、或要求精确跨进程恢复每个模型/工具 phase 时应优先切换 B。替代 A：Core + 事件监听/JSONL 可用于 ephemeral / best-effort profile，但不能声称有 A1+ durable admission 或 X2+ effect guarantee。
 
 ## 2. 控制面与数据面逻辑拓扑
 
@@ -96,6 +96,16 @@
 - UI 断开后不保证临时 token delta replay；必须可从 committed snapshot 重建最终 transcript；
 - payload 应进行 audience/tenant/secret filtering，不能因为 debug stream 就绕过敏感资源授权。
 
+### 4.4 Storage ACK、Outbox 与 Event Cursor
+
+[报告 65](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md) 将旧 R0–R4 改为独立 capability vector：A0–A3 commitAck、W0–W2 writerAuthority、E0–E2 eventDelivery、X0–X4 effectEvidence。A3 不蕴含 W2/E2/X3；外部 Shell 即使运行在 A3/W2 环境，仍可能是 X0 UNKNOWN。
+
+- SQLite WAL NORMAL 对应 A1 候选；WAL FULL 可作为 A2 候选，但需要 OS/FS/device flush 实测。Pi v1.4.0 Node adapter 的 WAL/NORMAL 不可宣称 A2。
+- PostgreSQL 以 per-stream transactional cursor row lock 分配 eventSeq；不要使用非事务 sequence 作为 gapless/commit-order cursor。
+- Snapshot 与 cursor 必须同一一致性快照读取；Read Committed 多条 SELECT 可能看到不同快照。
+- Outbox 只保证业务 commit 与 event row 原子；dispatcher/transport 至少一次，允许 duplicate。按 stream head-of-line 保序，客户端 eventId 幂等与 cursor replay。
+- Submit ACK 返回实际 ackProfile；网络断开导致 ACK 未收到时，用稳定 clientRequestId 查重，不重新创建 Run。
+
 ## 5. 一个 Run 的精确 admission / execution 边界
 
 1. Session API 收到 command，按 principal/tenant/session 校验；在事务中 dedup clientRequestId，提交 Submission+Run/Task，返回 accepted+submissionId。
@@ -172,9 +182,9 @@
 ## 10. 风险与待批准决策
 
 1. 第一版部署本地单用户、局域网多进程、还是跨主机多租户？决定存储与隔离。
-2. 最低交付 R1 还是要求断电后 ACK 不丢的 R2？不能默认使用 SQLite WAL NORMAL 却承诺 R2。
+2. 首发采用怎样的 A/W/E/X capability profile？若要求断电后 ACK 不丢，必须达到 A2；不能默认使用 SQLite WAL NORMAL 却承诺 A2。
 3. 是否允许 UNKNOWN 状态阻塞危险后继操作，人工或业务 API reconcile 后继续？
-4. 哪些 Tools/Providers 支持真实 effectKey 和可靠 outcome query？无对应保证就只提供 R0/R1 的恢复能力。
+4. 哪些 Tools/Providers 支持真实 effectKey 和可靠 outcome query？无对应保证就将该 operation 保持 X0/UNKNOWN，与 Store 的 A/W profile 分开声明。
 5. 是否要求针对历史消息做物理脱敏/删除？与不可变原始审计数据冲突，需要 data governance 方案。
 6. 是否允许 trusted in-process plugins 使用完整用户 OS 权限？若不允许则必须 sandbox。
 7. 现有 Kernel 是否有必须保留的数据协议/会话文件/迁移目标？目前只明确“不受旧设计约束”，不能推测实际数据兼容成本。
