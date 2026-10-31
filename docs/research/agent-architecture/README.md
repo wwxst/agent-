@@ -70,6 +70,7 @@
 - [报告 62：Operation UNKNOWN、Host 执行协议、迟到 Receipt 与双 Owner 恢复](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)
 - [报告 63：权限沙箱、历史脱敏与三种独立架构备选评审](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)
 - [报告 64：独立 Agent v0.2 事务/事件/任务恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)
+- [报告 65：可靠性保证向量、Storage ACK、Transactional Outbox 与 Event Cursor 合同](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)
 - [历史实验报告 30：Pi Loop 动态实验](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/30-Pi-Agent-Core动态适配原型-2026-10-29.md)
 - [历史实验报告 31：Pi 边界适配原型](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/31-Pi-Agent-Core-Kernel边界适配原型-2026-10-29.md)
 - [历史研究报告 32：Claude 与旧 Kernel 对照](https://github.com/wwxst/agent-/blob/experiment/pi-agent-core-adapter-spike-20261029/docs/research/comparative/32-Claude-Agent与Kernel架构对照-2026-10-29.md)
