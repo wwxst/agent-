@@ -1,0 +1,23 @@
+name: Agent Kernel Contract Spike
+on:
+  push:
+    branches:
+      - research/agent-kernel-contract-spike-20261031
+  pull_request:
+    paths:
+      - experiments/kernel-contract-spike/**
+      - .github/workflows/kernel-contract-spike.yml
+  workflow_dispatch:
+
+jobs:
+  contract-spike:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Run deterministic contract tests
+        run: node --test experiments/kernel-contract-spike/*.test.mjs
