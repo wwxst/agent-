@@ -234,3 +234,40 @@
 4. 本轮没有运行测试、POC、benchmark、chaos 或真实 Provider/Host 操作；没有修改业务代码、Kernel、开发测试或 ADR。
 
 **开发批准状态不变：未获得。**
+
+
+## 10. 本轮续接标记（LangGraph JS + Deep Agents JS，2026-10-31）
+
+本轮完成两项静态源码研究，并将报告文件加入 README 研究索引：
+
+- [报告 72：LangGraph JS Pregel 执行引擎、Pending Writes 与 Interrupt 恢复边界](./72-LangGraphJS-Pregel执行引擎PendingWrites与Interrupt恢复边界-2026-10-31.md)
+- [报告 73：Deep Agents JS Harness、子代理权限委派与 Sandbox 执行边界](./73-DeepAgentsJS-Harness子代理权限与Sandbox执行边界源码研究-2026-10-31.md)
+
+### 报告 72：LangGraph JS
+
+固定 langchain-ai/langgraphjs commit b09eb0662358457955131fe0bfec1d7c11e7d7c5，@langchain/langgraph 1.5.3。已核验 PregelLoop/PregelRunner、task Pending Writes、superstep checkpoint、durability、Postgres/SQLite saver、interrupt、retry/timeout、ToolNode。核心结论：成功 task Pending Writes 可在兄弟 task 失败后重用；但 checkpoint 不是外部副作用收据，sync 不是 effect commit barrier，interrupt resume 从 node 开头重跑。上游测试只读未运行，使用 MemorySaver，不构成真实 crash durability 证明。
+
+### 报告 73：Deep Agents JS
+
+固定 langchain-ai/deepagentsjs commit 26f190d40f44a2bb498db73e9e98b002bb8554fe，deepagents 1.16.2。已核验 createDeepAgent middleware stack、StateBackend/FilesystemBackend/LocalShellBackend、filesystem path permissions、sync/async subagent、QuickJS PTC bridge、Deno/Modal/Daytona sandbox adapters。
+
+### 新确认的架构结论
+
+- Deep Agents 是 LangGraph 之上的 Agent Harness，不是可信 Permission Authority、Operation Ledger 或通用 Durable Runtime；README 明确采用 trust-the-LLM，并要求在 tool/sandbox 层实施边界。
+- 默认 StateBackend 将 workspace 文件放入 graph state；FilesystemBackend 默认 virtualMode=false，绝对路径原样使用；LocalShellBackend 的 virtualMode 只限制文件 API，不限制 shell 命令。
+- filesystem permission 是 read/write path middleware，first-match-wins、默认 allow；execute 不受路径规则约束。结果过滤对无法解析的 backend entry path 存在 fail-open 分支，需独立安全评审。
+- SubAgent 默认工具可回退到父工具集合；permissions 未配置时继承父规则，但显式 permissions: [] 会清空父规则。上游测试定义明确验证此行为，本轮未运行。
+- isolated subagent 的 state filter 是固定 denylist，未列出的自定义 state key 仍可能被传递；应使用字段分类/allowlist context projection。
+- Async subagent 先创建远端 Thread/Run，再将 AsyncTask Command 写入父状态，存在远程任务已启动但本地 tracking 尚未 durable 的 crash gap。thread metadata 有 parent_thread_id/subagent_name，可辅助发现，但不是幂等创建合同。
+- QuickJS WASM 不暴露 process/require/fetch/FS globals，但 PTC bridge 能调用显式注入的宿主工具；session heap 存在进程内 static Map，JSON 只保存 session id，不能据此声称跨 worker 重启恢复。
+- Deno adapter 的 allowNet 不配置时不限制网络；Deno/Modal/Daytona adapter 单元测试使用 mock SDK，不能证明供应商 VM/container 安全隔离。
+
+### 未决与下一步
+
+1. 按相同矩阵静态研究 Python deepagents，核对 Python/JS 在 permissions、state filtering、async subagent、HITL 和 sandbox 的 parity。
+2. 审计 Deno/Modal/Daytona 供应商安全模型、网络 egress、secret injection、volume/snapshot retention、kill 与数据擦除合同。
+3. 追踪 Agent Protocol server 的 Thread/Run 创建幂等、owner fencing、cancel/interrupt/resume、webhook delivery 和跨 worker reconciliation。
+4. 将报告 72/73 与 v0.2 报告 64–71 交叉评审；只提出架构合同修订，不修改 ADR。
+5. 所有动态验证仍需用户明确批准；本轮没有运行测试、POC、benchmark、chaos、crash injection 或真实外部操作。
+
+**开发批准状态不变：未获得。继续研究不代表允许开发。**
