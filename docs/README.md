@@ -1,78 +1,145 @@
-> **归档提示（2026-10-31）：本仓库已清除全部源码、测试、构建和 CI，仅保留 Markdown 文档。以下内容包含源码仍存在时的历史实现、验证与路线记录；提及的代码路径及测试命令在当前分支不可直接运行。**
+# Agent 内核中文文档导航
 
-# Agent Kernel 中文设计文档
+> 更新：2026-10-31。**这是纯文档归档库，当前没有源码、测试、构建和 CI**。历史报告中的“已实现”“已验证”均指清理前固定版本，不代表当前仓库可以执行。
 
-> 文档集版本：v0.1｜维护状态：架构设计、M0/M1/M2 实现记录与 M3 安全隔离增量｜更新：2026-10-31
+## 从哪里开始
 
-本目录包括自研 Agent 内核的**架构设计草案和已经落地的 M0/M1 增量实现记录**。没有对应代码与真实测试的提议不视为已交付；当前尚未具备生产部署要求。
+建议先读 [中文综合总结](中文综合总结.md)，掌握项目架构和研究结论；再查阅 [技术术语表](技术术语表.md) 和 [历史模块地图](模块地图.md)。本页为按主题整理的**完整逐篇目录**，既保留原有文件路径，也避免凭空合并或删减研究证据。
 
-## 文档阅读顺序
+## 阅读顺序
 
-- [模块地图与依赖边界](模块地图.md)：快速了解 17 个 Package 的职责、主运行链路和跨模块依赖约束。
+1. **概览（约 10 分钟）**：[中文综合总结](中文综合总结.md) → [愿景与范围](00-愿景与范围.md) → [总体架构](01-总体架构.md)。
+2. **设计（按需查阅）**：执行循环、事件存储、权限、模型上下文、扩展和协议。
+3. **技术取舍**：[跨内核研究索引](research/comparative/README.md) → [正式评审稿](research/comparative/14-自研内核架构取舍正式评审稿.md) → [后续架构重评](research/comparative/26-架构重评第一轮-2026-10-29.md)。
+4. **历史实现**：M1–M3 专题是阶段性记录；以原记录所述版本和测试条件为限。
+5. **证据核对**：研究目录内的静态分析、动态探针、未验证事项与 ADR 相互印证，不混同为当前生产能力。
 
+## 一、总体设计与历史实现（36 篇）
 
-| 顺序 | 文档 | 重点 |
-| --- | --- | --- |
-| 00 | [愿景与范围](00-愿景与范围.md) | 自主实现的原则、MVP 目标、非目标 |
-| 01 | [总体架构](01-总体架构.md) | Kernel、Provider、Tool Host、存储与客户端边界 |
-| 02 | [执行循环与状态机](02-执行循环与状态机.md) | Session/Turn/Step、取消、Steering |
-| 03 | [事件与持久化](03-事件与持久化.md) | Event Journal、Snapshot、重放与副作用恢复 |
-| 04 | [工具与安全](04-工具与安全.md) | Tool Registry、审批、能力、安全沙箱 |
-| 05 | [模型与上下文](05-模型与上下文.md) | Provider、模型流式事件、预算与上下文压缩 |
-| 06 | [扩展与多智能体](06-扩展与多智能体.md) | Hooks、Skills、MCP、Subagents |
-| 07 | [客户端协议](07-客户端协议.md) | HTTP/SSE、事件游标、幂等、错误码 |
-| 08 | [开发路线与验收](08-开发路线与验收.md) | M0-M4 阶段、测试矩阵、完成条件 |
-| 09 | [DeepSeek Harness 借鉴评估](09-DeepSeek-Harness-借鉴评估.md) | Cordis、可组合能力、Scope 与可信内核边界 |
-| 10 | [Claude Code 内核源码追踪（第一轮）](10-Claude-Code-内核源码追踪.md) | 2.1.304 Agent Loop、ToolCall、权限、回填和 2.1.88 对照 |
-| M1-11 | [安全重开与恢复边界](11-M1-会话重开与恢复边界.md) | 已实现 session 重开、未决 Turn 停机保护、校验测试 |
-| M1-12 | [SQLite WAL 事件日志](12-M1-SQLite-WAL-事件日志.md) | 已实现事务 CAS、跨连接与 SIGKILL 测试 |
-| M1-13 | [Writer Lease 与 Fencing Token](13-M1-Writer-Lease-与-Fencing-Token.md) | 租约事务与 fenced append 的实现记录 |
-| M1-14 | [ManagedSessionRunner 自动续租与中断](14-M1-ManagedSessionRunner-自动租约与中断.md) | 自动租约管理与协作中断的首次实现记录；后续 Tool Host、Intent/Receipt 和沙箱能力见后续专题 |
-| M1-15 | [Tool Intent/Receipt 执行审计](15-M1-Tool-Intent-Receipt-执行审计.md) | 执行前持久化、单项收据、结果未知时拒绝重放；仅可信只读工具 |
-| M1-16 | [子进程 Tool Host 与执行账本](16-M1-子进程ToolHost-与执行账本.md) | 独立 Node 子进程、Host 侧 Intent/Fence、STARTED 台账，尚无 OS 沙箱 |
-| M1-17 | [双账本只读对账与证据判定](17-M1-双账本只读对账与证据判定.md) | SQLite 一致只读快照、证据归类与强制无盲目重试 |
-| M1-18 | [证据绑定人工复核记录](18-M1-证据绑定人工审核记录.md) | 审核理由/身份字段、Hash CAS、不可变持久记录；尚无生产鉴权和恢复授权 |
-| M1-19 | [旧 PR #2 Provider 和 CLI 移植](19-M1-旧PR2-真实Provider和CLI整合.md) | OpenAI/Anthropic 流式、工具快照、Usage/字符准入与受限 CLI；未实测计费模型 |
-| M2-20 | [Command Inbox 事务 ACK 与幂等](20-M2-Command-Inbox-事务ACK与幂等.md) | Writer Lease/Fencing、可重复 ACK、同 ID 不同内容拒绝、无自动执行 |
-| M2-21 | [Steering 活动 Turn 指令与审计](21-M2-Steering-活动Turn指令与审计.md) | 持久 FIFO/Step 消费、受租约绑定控制、未决 Steering 的恢复拒绝 |
-| M2-22 | [Context Checkpoint 可信摘要投影](22-M2-Context-Checkpoint-可信摘要投影.md) | 旧 Turn 可验证摘要、原始日志不可变、Steering/租约/故障停机保护 |
-| M2-23 | [Command Dispatcher 原子 Turn 绑定](23-M2-Command-Dispatcher-持久Turn绑定与重放阻断.md) | 持久 CommandId→TurnId、单次执行、跨崩溃只读状态、无自动重放 |
-| M2-24 | [本地认证控制面与 Session 权限](24-M2-本地认证控制面与Session权限.md) | Loopback Bearer 认证、逐 Session 能力授权、隐私元数据响应；非生产级远端网关 |
-| M2-25 | [持久凭据轮换撤销与授权审计](25-M2-持久凭据轮换撤销与授权审计.md) | 可信本地管理、SQLite 密钥版本 CAS、永久撤销和 fail-closed 授权决策审计 |
-| M2-26 | [执行期间授权撤销与协作中断](26-M2-执行期间授权撤销与协作中断.md) | HTTP Grant 版本绑定、周期重检及模型/工具栅栏、未决 Turn 保守审计 |
-| M3-27 | [Linux Tool Host Bubblewrap 强制隔离](27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md) | 显式 Linux namespace、只读应用/运行时、独立 RW SQLite、真实网络/文件隔离测试，不支持时拒绝 |
-| M3-28 | [沙箱启动可信根与临时空间预算](28-M3-沙箱启动可信根与私有临时空间预算.md) | launcher 位于受信 RO runtime、tmpfs 容量限制与 Worker READY 超时 fail-closed |
-| M3-29 | [强制沙箱入口与继承 cgroup v2 配额](29-M3-强制沙箱入口与继承cgroup资源额度.md) | Linux Bubblewrap READY + CPU/内存/PID cgroup v2 预先有限配额，未受限拒绝；明确非 Worker 专属组 |
-| M3-30 | [独立 Worker cgroup 与整组终止](30-M3-独立Worker-cgroup与整组终止边界.md) | 受信预创建空叶子、直接额度、先迁组再启动 Worker 和 cgroup.kill；正向内核集成待验证 |
-| M3-31 | [Tool Host 内核侧进程身份验证](31-M3-ToolHost-内核侧进程身份验证.md) | READY 前独立核验 /proc 子孙 PID、真实 exe/argv、四类 namespace 和启动版本，调用前重检 |
-| M3-32 | [Linux seccomp 网络与特权调用限制](32-M3-Linux-Seccomp-网络与特权调用限制.md) | 显式 x86-64 classic BPF、FD3 无名传递、真实网络 syscall EPERM、内核过滤层核验 |
-| M3-33B | [Tool Host SQLite 专用挂载目录准入](33-M3-ToolHost-SQLite专用挂载目录准入.md) | 禁止同一 RW 目录携带凭据、备份、符号链接或其他数据文件；明确保留数据库写入风险 |
-| M3-33 | [受限部署入口强制 seccomp](33-M3-生产安全入口强制Seccomp与配置拒绝.md) | 两类安全 Host 工厂必须带已验证 profile，阻止外部专用迁组描述与配置遗漏时弱化 |
-| 11–20 | [Claude Code 深入源码研究](research/claude-code/README.md) | Loop、工具调度、权限、压缩、子 Agent、真实 Shell 执行、CLI/Bridge 协议及证据边界 |
-| 综合 | **[四套 Agent 内核源码研究与技术取舍](research/comparative/README.md)** | 29 份主题文档：证据登记、四家专项、执行/持久化审计、工具异常、安全方案与未验证边界 |
-| ADR | [ADR 0001：自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md) | 架构取舍与接受条件 |
-| ADR | [ADR 0002：能力组合与可信内核边界](adr/0002-能力组合与可信内核边界.md) | 插件能替换什么、不能替换什么 |
-| ADR | [ADR 0003：远程 ACK 与工具收据](adr/0003-远程控制事件确认与执行收据.md) | 区分传输确认、持久接受、执行开始、执行结束 |
-| ADR | [ADR 0004：工具隔离与中断语义](adr/0004-工具执行隔离与中断语义.md) | 沙箱强制执行、内部字段信任边界、Interrupt/Cancel/Background |
-| ADR | **[ADR 0005：首版自主内核技术基线与取舍](adr/0005-首版自主内核技术基线与取舍.md)** | 推荐 TS Kernel / SQLite WAL / 独立 ToolHost / 保守并发，尚未接受 |
-| ADR | [ADR 0006：Linux Tool Host seccomp 启动约束](adr/0006-M3-ToolHost-seccomp-强制系统调用边界.md) | 受信 BPF FD3、架构检查、kernel filter 就绪验证与明确风险边界 |
+### 基础架构与设计
 
-## 设计来源
+- [愿景与范围](00-愿景与范围.md)
+- [总体架构](01-总体架构.md)
+- [执行循环与状态机](02-执行循环与状态机.md)
+- [事件与持久化](03-事件与持久化.md)
+- [工具与安全](04-工具与安全.md)
+- [模型与上下文](05-模型与上下文.md)
+- [扩展与多智能体](06-扩展与多智能体.md)
+- [客户端协议](07-客户端协议.md)
+- [开发路线与验收](08-开发路线与验收.md)
+- [DeepSeek-Harness-借鉴评估](09-DeepSeek-Harness-借鉴评估.md)
+- [Claude-Code-内核源码追踪](10-Claude-Code-内核源码追踪.md)
+- [模块地图](模块地图.md)
 
-项目研究 Pi 的 Agent Loop、Codex 的事件/会话/执行隔离，以及 Claude Code 的 Hooks/Skills/Subagents，另研究 DeepSeek Harness 的组件组合、Scoped Registration、Profile 和可逆生命周期；但核心状态机、执行调度与公共协议由本项目自主实现。参考项目只是研究对象，不是本项目已经接入的运行依赖。
+### M1：事件持久化、租约与工具收据
 
-## 与外部仓库的关系
+- [M1-会话重开与恢复边界](11-M1-会话重开与恢复边界.md)
+- [M1-SQLite-WAL-事件日志](12-M1-SQLite-WAL-事件日志.md)
+- [M1-Writer-Lease-与-Fencing-Token](13-M1-Writer-Lease-与-Fencing-Token.md)
+- [M1-ManagedSessionRunner-自动租约与中断](14-M1-ManagedSessionRunner-自动租约与中断.md)
+- [M1-Tool-Intent-Receipt-执行审计](15-M1-Tool-Intent-Receipt-执行审计.md)
+- [M1-子进程ToolHost-与执行账本](16-M1-子进程ToolHost-与执行账本.md)
+- [M1-双账本只读对账与证据判定](17-M1-双账本只读对账与证据判定.md)
+- [M1-证据绑定人工审核记录](18-M1-证据绑定人工审核记录.md)
+- [M1-旧PR2-真实Provider和CLI整合](19-M1-旧PR2-真实Provider和CLI整合.md)
 
-未来可为 `wwxst/agent-web` 或 `wwxst/agent-cil` 开发 Client Adapter 或迁移接口。尚未对两个已有仓库做本轮接口审计，因此不承诺现成兼容。
+### M2：指令、上下文与授权控制
 
-## 改动文档的规则
+- [M2-Command-Inbox-事务ACK与幂等](20-M2-Command-Inbox-事务ACK与幂等.md)
+- [M2-Steering-活动Turn指令与审计](21-M2-Steering-活动Turn指令与审计.md)
+- [M2-Context-Checkpoint-可信摘要投影](22-M2-Context-Checkpoint-可信摘要投影.md)
+- [M2-Command-Dispatcher-持久Turn绑定与重放阻断](23-M2-Command-Dispatcher-持久Turn绑定与重放阻断.md)
+- [M2-本地认证控制面与Session权限](24-M2-本地认证控制面与Session权限.md)
+- [M2-持久凭据轮换撤销与授权审计](25-M2-持久凭据轮换撤销与授权审计.md)
+- [M2-执行期间授权撤销与协作中断](26-M2-执行期间授权撤销与协作中断.md)
 
-- 行为改变：同步更新对应设计文档、类型与测试。
-- 架构、数据格式、安全边界变化：新增或修订 ADR。
-- 未经实际执行的测试不得标记为通过。
-- 文档存在尚未决策处时标注“提议”或“待确认”，不伪装为既定事实。
-- 新开发任务首先阅读仓库根目录 `AGENTS.md`。
+### M3：Linux 工具执行隔离
 
-## 建议从哪里开始
+- [M3-Linux-ToolHost-Bubblewrap-强制隔离](27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md)
+- [M3-沙箱启动可信根与私有临时空间预算](28-M3-沙箱启动可信根与私有临时空间预算.md)
+- [M3-强制沙箱入口与继承cgroup资源额度](29-M3-强制沙箱入口与继承cgroup资源额度.md)
+- [M3-独立Worker-cgroup与整组终止边界](30-M3-独立Worker-cgroup与整组终止边界.md)
+- [M3-ToolHost-内核侧进程身份验证](31-M3-ToolHost-内核侧进程身份验证.md)
+- [M3-Linux-Seccomp-网络与特权调用限制](32-M3-Linux-Seccomp-网络与特权调用限制.md)
+- [M3-ToolHost-SQLite专用挂载目录准入](33-M3-ToolHost-SQLite专用挂载目录准入.md)
+- [M3-生产安全入口强制Seccomp与配置拒绝](33-M3-生产安全入口强制Seccomp与配置拒绝.md)
 
-当前 M0/M1/M2 已有多项可运行实现与测试，M3 提供显式启用的 Linux 隔离能力，但仍存在独立 cgroup 正向验收、完整 seccomp 策略、数据库权限隔离和生产级审核/恢复授权等缺口。下一步应优先补齐这些可验证的安全边界；不要将现有增量描述为默认强制或生产就绪。
+> 历史文档中存在两个编号为“33”的专题，为避免破坏大量历史链接，当前保留原文件名，用中文标题区分，不代表缺少内容。
+
+## 二、架构决策记录（6 篇）
+
+- [自主内核与宿主隔离](adr/0001-自主内核与宿主隔离.md)
+- [能力组合与可信内核边界](adr/0002-能力组合与可信内核边界.md)
+- [远程控制事件确认与执行收据](adr/0003-远程控制事件确认与执行收据.md)
+- [工具执行隔离与中断语义](adr/0004-工具执行隔离与中断语义.md)
+- [首版自主内核技术基线与取舍](adr/0005-首版自主内核技术基线与取舍.md)
+- [M3-ToolHost-seccomp-强制系统调用边界](adr/0006-M3-ToolHost-seccomp-强制系统调用边界.md)
+
+决策记录可能包含“提议”“待接受”状态。请以文内证据和结论为准，不要把候选设计直接视为最终方案。
+
+## 三、Claude Code 专项研究（10 篇）
+
+[专项研究总目录](research/claude-code/README.md)
+
+- [执行循环与工具调度](research/claude-code/11-执行循环与工具调度.md)
+- [权限审批与沙箱](research/claude-code/12-权限审批与沙箱.md)
+- [上下文压缩](research/claude-code/13-上下文压缩.md)
+- [子智能体与恢复](research/claude-code/14-子智能体与恢复.md)
+- [借鉴取舍与测试矩阵](research/claude-code/15-借鉴取舍与测试矩阵.md)
+- [沙箱执行与策略映射](research/claude-code/16-沙箱执行与策略映射.md)
+- [SDK控制协议与审批竞态](research/claude-code/17-SDK控制协议与审批竞态.md)
+- [远程Bridge事件确认与恢复](research/claude-code/18-远程Bridge事件确认与恢复.md)
+- [Shell实际执行与取消语义](research/claude-code/19-Shell实际执行与取消语义.md)
+- [CLI子进程协议与Desktop证据边界](research/claude-code/20-CLI子进程协议与Desktop证据边界.md)
+
+研究以特定版本和来源为范围；静态证据不等于真实端到端运行验证。
+
+## 四、四套参考内核对比研究（29 篇）
+
+[跨内核研究总目录](research/comparative/README.md)
+
+- [研究方法与证据登记](research/comparative/00-研究方法与证据登记.md)
+- [Claude-Code-2.1.304-新版复核](research/comparative/01-Claude-Code-2.1.304-新版复核.md)
+- [Pi-Agent-源码研究](research/comparative/02-Pi-Agent-源码研究.md)
+- [Codex-源码研究](research/comparative/03-Codex-源码研究.md)
+- [DeepSeek-Harness-源码研究](research/comparative/04-DeepSeek-Harness-源码研究.md)
+- [架构取舍与候选设计](research/comparative/05-架构取舍与候选设计.md)
+- [未完成事项与验证计划](research/comparative/06-未完成事项与验证计划.md)
+- [Pi-Coding-Agent-上层会话扩展与Shell](research/comparative/07-Pi-Coding-Agent-上层会话扩展与Shell.md)
+- [Codex-AppServer-指令审批与持久化屏障](research/comparative/08-Codex-AppServer-指令审批与持久化屏障.md)
+- [DeepSeek-工具执行管线与PTC隔离](research/comparative/09-DeepSeek-工具执行管线与PTC隔离.md)
+- [Claude-Desktop-SDK-进程控制与错误边界](research/comparative/10-Claude-Desktop-SDK-进程控制与错误边界.md)
+- [跨内核不变量与架构评审门槛](research/comparative/11-跨内核不变量与架构评审门槛.md)
+- [四内核执行与持久化证据审计](research/comparative/12-四内核执行与持久化证据审计.md)
+- [工具权限与异常恢复对照](research/comparative/13-工具权限与异常恢复对照.md)
+- [自研内核架构取舍正式评审稿](research/comparative/14-自研内核架构取舍正式评审稿.md)
+- [研究完成判据与剩余缺口](research/comparative/15-研究完成判据与剩余缺口.md)
+- [跨内核统一验证规约](research/comparative/16-跨内核统一验证规约-2026-10-28.md)
+- [第三轮隔离动态复现](research/comparative/17-第三轮隔离动态复现-2026-10-28.md)
+- [第四轮执行边界审查](research/comparative/18-第四轮执行边界审查-2026-10-28.md)
+- [完整Kernel动态验证](research/comparative/19-完整Kernel动态验证-2026-10-28.md)
+- [真实ToolHost并发故障及沙箱复核](research/comparative/20-真实ToolHost并发故障及沙箱复核-2026-10-28.md)
+- [编码工作流能力边界与动态实验](research/comparative/21-编码工作流能力边界与动态实验-2026-10-28.md)
+- [真实Bubblewrap-Workspace执行边界](research/comparative/22-真实Bubblewrap-Workspace执行边界-2026-10-28.md)
+- [Workspace执行隔离与纯补丁规划](research/comparative/23-Workspace执行隔离与纯补丁规划-2026-10-28.md)
+- [可信Workspace提交器与HostLedger实证](research/comparative/24-可信Workspace提交器与HostLedger实证-2026-10-28.md)
+- [可信Workspace收据缺口修复](research/comparative/25-可信Workspace收据缺口修复-2026-10-28.md)
+- [架构重评第一轮](research/comparative/26-架构重评第一轮-2026-10-29.md)
+- [工具结果顺序与Adopt-vs-Build](research/comparative/27-工具结果顺序与Adopt-vs-Build-2026-10-29.md)
+- [Pi-Agent-Core适配边界审查](research/comparative/28-Pi-Agent-Core适配边界审查-2026-10-29.md)
+
+重点研究 Pi Agent、Codex、Claude Code 和 DeepSeek Harness。不同轮次的研究结论可能互相修正，建议按日期和证据等级比较。
+
+## 五、实验记录与研究方法
+
+- [README](research/comparative/probes/2026-10-28/README.md)
+
+实验原始脚本已按纯文档仓库要求移除，保留的 README 属于历史说明，不意味着当前可以重现其运行。
+
+## 文档语言和维护规则
+
+- 中文用于标题、解释、结论、风险和文档导航；API 名、函数名、事件名、引用项目名称等保留英文原名。
+- 如果中文同义词有歧义，首次出现可使用“中文名称（英文术语）”。
+- 已实现、已验证、计划、建议、未验证是不同证据状态，需保持清楚。
+- 不修改历史报告的原始结论或实验结果以制造新的“已验证”事实。
+- 文档之外的 `README.md`、`AGENTS.md`、`m0/` 不属于本次整理范围。
