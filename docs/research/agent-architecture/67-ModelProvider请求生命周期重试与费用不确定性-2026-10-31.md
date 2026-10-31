@@ -1,7 +1,9 @@
 # 67：Model Provider 请求生命周期、重试层级与费用不确定性（2026-10-31）
 
 > **研究/设计补充；未获开发批准。** 本文研究 Agent 系统中的模型调用本身也是远端、可能计费的操作，不能只把 Tool 当成外部副作用。固定证据为 Pi Durable/AI v1.4.0 源码与已有 Claude CLI 2.1.304 报告 36；本轮未调用真实 Provider、未做断网/计费/重复请求实验。
-> 关联：[53：Pi GenerationTask](./53-Pi-Durable-HarnessTaskScheduler与GenerationToolTask状态机复核-2026-10-30.md)、[57：CompactionTask](./57-Pi-Durable-CompactionTask上下文边界重放与失效风险-2026-10-30.md)、[62：Operation UNKNOWN](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)、[65：可靠性向量](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)、[66：Host Manifest](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)。
+> 关联：[53：Pi GenerationTask](./53-Pi-Durable-HarnessTaskScheduler与GenerationToolTask状态机复核-2026-10-30.md)、[57：CompactionTask](./57-Pi-Durable-CompactionTask上下文边界重放与失效风险-2026-10-30.md)、[62：Operation UNKNOWN](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)、[65：可靠性向量](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)、[66：Host Manifest](./66-HostCapabilityManifest与工具执行一致性验收合同-2026-10-31.md)、[68：Provider Request ID/异步 Job 合同](./68-Provider请求ID与异步Job可恢复性及数据保留合同-2026-10-31.md)。
+>
+> **后续官方文档交叉核验修订（2026-10-31）：** Pi v1.4.0 OpenAI adapter 把 conversation-scoped sessionId 复用到 X-Client-Request-Id；当前 OpenAI 官方文档要求该 header per-request unique。报告 68 已把它升级为源码/文档合同差异，并补充 OpenAI Background Response、Anthropic Message Batches 与 retention/compliance 语义。
 
 ## 1. 核心结论
 
@@ -54,7 +56,7 @@ Pi Durable packages/durable/src/harness/provider.ts blob b838982a686d3eb49c64324
 Pi AI packages/ai/src/types.ts blob c0f3b56277fb2277dd9a26f41043dfae3f04c2c5 明确把 sessionId 定义为 session-based caching / request routing / session-aware feature，不是 idempotency key。
 
 Provider adapter 的实际映射进一步验证：
-- OpenAI Responses packages/ai/src/api/openai-responses.ts blob 8ddaa6944961ae55fbe3d1e3ce67686e9eb7d7a0 L315–360：同一个 options.sessionId 可被映射到 prompt_cache_key、session_id、x-client-request-id/session affinity header；这段代码没有定义 server-side dedup/at-most-once contract。
+- OpenAI Responses packages/ai/src/api/openai-responses.ts blob 8ddaa6944961ae55fbe3d1e3ce67686e9eb7d7a0 L315–360：同一个 options.sessionId 可被映射到 prompt_cache_key、session_id 与 x-client-request-id。当前 OpenAI 官方要求 X-Client-Request-Id 每个 request 唯一，而 Pi ProviderDoc sessionId 是 conversation-scoped stable ID；这是 pinned Pi v1.4.0 的源码/官方文档差异，详见报告 68。该 header 是 support correlation，不是 server-side dedup/at-most-once contract。
 - OpenAI Codex Responses packages/ai/src/api/openai-codex-responses.ts blob 90a599e665eedb756d4838696b6eb6c792b3b961 L270–405：websocketRequestId 可复用 codexSessionId，否则生成 UUID；它用于该 adapter 的 websocket request/routing path，不能因此视为所有 Provider 通用的 logical request ID。
 - sessionId 是 Conversation affinity/cache identity；同一 conversation 可有多次不同 model requests。不得将它当 modelRequestId 或 effectKey。
 
@@ -107,7 +109,7 @@ packages/ai/src/api/openai-codex-responses.ts blob 90a599e665eedb756d4838696b6eb
 | AssistantEntry + UsageDoc 已同一事务提交 | answer/usage committed | 本地 reported usage 已知 | 不重复调用 |
 | Deferred handle 已持久化 | provider job pending | 按 provider handle 继续 | poll 同一 handle；cancelDeferred 仅按 provider capability 评估 |
 
-注意：HTTP 429/5xx 是否收费、流中断是否收费、响应完成后是否可以按 request ID 查 usage 都是 Provider-specific contract；不能对所有 API 作统一假设。
+注意：HTTP 429/5xx 是否收费、流中断是否收费、响应完成后是否可以按 request ID 查 usage 都是 Provider-specific contract；不能对所有 API 作统一假设。Anthropic 429 还可能是没有 Retry-After 的 spend-cap 429；Pi helper 默认将 429 视为 retryable，但 provider retry 默认关闭，详见报告 68。
 
 ## 6. 目标架构：ModelCall Ledger
 
@@ -149,6 +151,7 @@ proposed ModelCall state axes：
 - 用户允许“重新请求并接受可能重复计费”时，创建新的 requestAttemptId，保留与旧 attempt 的 retryOf 关系，并向 UI 暴露 cost uncertainty；
 - Deferred handle 已存在则 poll 同 handle，不新建 Generation request；poll attempt 单独计数。
 - Prompt cache/session affinity ID 不得用来 dedup request。
+- Provider background response/batch job 的 responseId/batchId、stream cursor、result retention、data policy 另有合同，详见报告 68；拿到 job handle 后应 poll/resume 同一资源，不应重发 create。
 
 ### 6.4 Usage 与 Billing Ledger
 
