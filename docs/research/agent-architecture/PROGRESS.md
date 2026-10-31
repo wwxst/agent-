@@ -1,7 +1,7 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-30（报告 62–64：Operation UNKNOWN 对账、强制权限/沙箱与架构 v0.2 修订）  
-> 当前阶段：**源码比较首轮完成；独立架构 v0.2 研究设计已提交审阅；技术/安全/保证等级仍待确认**  
+> 最后更新：2026-10-31（报告 65：可靠性 capability vector、SQLite/PostgreSQL ACK、Outbox 与 Event Cursor 合同）  
+> 当前阶段：**源码比较首轮完成；独立架构 v0.2 + Storage/EventHub 合同已提交审阅；A/W/E/X capability profile 与产品需求仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
 ## 1. 当前目标
@@ -56,6 +56,7 @@
 | 报告 62 | Operation UNKNOWN 回收协议：稳定 operationId/attemptId、Control owner vs effect owner、四轴状态、Host capability/prepare/execute/queryOutcome、可信旧 epoch late receipt、provider idempotency 边界 | 固定 Claude 35/38/41/48/50 和 Pi ToolTask/Scheduler/Chord v1.4.0 源码复核；协议为目标架构提案，未执行故障注入 |
 | 报告 63 | 权限/沙箱/数据安全设计：Project Trust vs tool approval vs OS sandbox、OperationGrant、nested/MCP/Subagent delegation、revoke TOCTOU、summary redaction lineage、物理删除冲突；A/B/C 架构替代方案与 ADR | 引用 Pi Coding official security.md/ToolHooks/Chord principal、Claude Desktop SDK；最终选型未批准，动态安全试验未做 |
 | 报告 64 | v0.2 整合设计：Hybrid C 默认候选与 Task-native B fallback；控制面事务/Intent/Receipt；stream-local eventSeq/snapshot consistency/provisional streaming；真实 Host effect evidence 及 recovery；7 项扩展故障门槛 | 设计合同，不是业务实现；未执行 CI/故障测试；报告 60/61 原简化表述已经加修订说明 |
+| 报告 65 | 可靠性保证 capability vector：A0–A3 commit ACK、W0–W2 writer authority、E0–E2 event delivery、X0–X4 effect evidence；Pi SQLite/JSONL 源码与 SQLite/PostgreSQL 官方事务/同步语义；per-stream cursor、snapshot consistency、transactional outbox 重复投递与 client replay | 固定 Pi v1.4.0 源码 + SQLite/PostgreSQL 官方文档 + AWS/Debezium outbox 指南；报告是设计合同，未执行目标环境 crash/HA/outbox tests |
 
 ## 4. 研究覆盖率
 
@@ -69,7 +70,7 @@
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | 完整源码比较与独立架构研究 | **首轮源码和 12 同场景对比完成，架构 v0.2 与协议/安全修订已提交待审阅；真实故障验证未执行** | 报告 59 提供比较；60–61 是初版架构/验收；62 定义 Host Operation/UNKNOWN 和 late receipt；63 审查权限/沙箱/历史删除及 Hybrid/Task-native 取舍；64 整合 v0.2 事务、UI event cursor、Task/Host 状态与崩溃恢复。报告 60/61 原断言已注明修订；**未获开发批准** |
 | 横向架构比较 | **报告 59 已完成首轮 12 场景对照，待真实故障证据** | 在 v0.2 中验证 external effect/permission/fencing 的边界；旧报告 32 不作为最终结论 |
-| 新目标架构 | **报告 60–64 已形成 v0.2 候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择目标可靠性 tier、Host/sandbox、Context erasure、实际工具幂等能力，并补充待证据 |
+| 新目标架构 | **报告 60–65 已形成 v0.2 + Storage/EventHub 合同候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择 A/W/E/X capability profile、Host/sandbox、Context erasure、实际工具幂等能力，并补充待证据 |
 | 用户确认 | **未获开发批准；等待对 v0.2 和决策项的明确评审** | 用户可要求只修订设计；“继续”不能解释为准许进入开发 |
 
 ## 5. 下一步任务（按顺序执行）
@@ -145,7 +146,7 @@
 本轮新增：
 - [62：Operation stable ID、Host effect evidence 与 UNKNOWN 对账协议](./62-Operation执行协议未知结果对账与多Owner恢复合同-2026-10-30.md)
 - [63：Mandatory Permission Authority、OS 沙箱、Context 安全失效与架构 A/B/C 备选](./63-权限沙箱上下文脱敏与独立架构选型评审-2026-10-30.md)
-- [64：v0.2 事务、Event Stream、Task/Operation/Host 恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)
+- [64：v0.2 事务、Event Stream、Task/Operation/Host 恢复集成合同](./64-目标Agent架构v0.2事务事件与恢复协议整合-2026-10-30.md)、[65：可靠性保证向量、Storage ACK 与 Event Cursor 合同](./65-可靠性保证向量存储ACK与事件游标合同-2026-10-31.md)
 
 **本轮修正：**
 1. Intent-before-effect、控制面 DB CAS/Worker epoch 仅是必要条件，不可推断任意外部 effect exactly-once。Host ledger/queryOutcome 的 not-found 若不能排除并发执行，也不能证明 never-started。
@@ -194,11 +195,13 @@
 - 概念 Host prepare/execute/queryOutcome 保持 same operationId，不把 prepare/execute 叫成可原子提交外部 API 的 2PC；late completion 进入审计/对账，旧 owner 不得篡改新 Task。
 - Mandatory Permission Authority + 实际执行 Host gate + OS sandbox；历史安全编辑增加 Summary SecurityRevision fence；物理删除另定。
 - v0.2 订正 EventHub：stream-local eventSeq + snapshot consistent cursor，token streaming 只是 provisional。
+- 报告 65 将旧 R0–R4 标量分解为 A/W/E/X capability vector；SQLite WAL NORMAL 仅为 A1 候选、WAL FULL 为 A2 候选；Postgres 同步副本配置可评估 A3；所有这些都不自动提升 Tool effectEvidence。
+- Outbox 允许重复投递；dispatcher 必须按 stream 保序，客户端 eventId 幂等；Submit ACK 返回实际 ackProfile，丢 ACK 用 clientRequestId 查重。
 - Hybrid C 是研究推荐，Task-native B 备选；首发环境与具体协议/技术栈未批准。
 
 ### 未决与下一步
 
-1. 用户审阅报告 59–64，明确首发可靠性 tier、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性。
+1. 用户审阅报告 59–65，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性。
 2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
