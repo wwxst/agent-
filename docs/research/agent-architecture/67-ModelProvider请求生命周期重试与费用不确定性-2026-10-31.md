@@ -87,7 +87,7 @@ Pi Durable GenerationTask 的 classify 也先单独处理 context overflow，再
 ### 4.3 Codex transport fallback/retry
 
 packages/ai/src/api/openai-codex-responses.ts blob 90a599e665eedb756d4838696b6eb6c792b3b961：
-- WebSocket transport 在 stream 未开始时，遇到特定 connection-limit / previous_response_not_found 可各自有限重试；
+- WebSocket transport 对 connection-limit 仅在 stream 未开始时有限重试；previous_response_not_found 有独立的一次 retry 分支（代码条件是非 aborted 且尚未 retry，不应概括为通用续流）；
 - WebSocket 在 stream 已开始后失败，不切换 SSE 继续同一 response，而是抛出错误；
 - stream 尚未开始时可记录 transport failure 并 fallback 到 SSE；
 - SSE fetch 对配置的 retryable status/network error 使用 maxRetries（默认 0）重试；
