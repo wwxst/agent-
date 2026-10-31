@@ -20,4 +20,4 @@ jobs:
         with:
           node-version: '22.16.0'
       - name: Run deterministic contract tests
-        run: node --test experiments/kernel-contract-spike/kernel.test.mjs
+        run: node --test experiments/kernel-contract-spike/*.test.mjs
