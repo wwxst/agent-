@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-31（报告 65–68：Storage/EventHub、Host Capability、ModelCall 与 Provider Async Job 合同）  
+> 最后更新：2026-10-31（报告 65–69：Storage/EventHub、Host Capability、ModelCall、Provider Job 与 Durable Runtime 选型）  
 > 当前阶段：**源码比较首轮完成；独立架构 v0.2 + Storage/EventHub 合同已提交审阅；A/W/E/X capability profile 与产品需求仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -60,6 +60,7 @@
 | 报告 66 | Host Capability Manifest：operationId/attemptId/requestId/workerEpoch/hostInstanceId/effectKey 身份分层；dedup/queryOutcome/notFound/tombstone/receipt retention；cancel/permission/replay 证据；Claude Remote Host vs Pi replay policy；HC-01–18 一致性验收计划 | 固定 Claude CLI/Desktop 发布 bundle 静态报告 35/38/41/50 + Pi v1.4.0 ToolRegistration/ToolTask/测试源码；HC 测试均未执行，Claude Host 服务端持久性仍未知 |
 | 报告 67 | Model Provider Operation：Generation request checkpoint 与 process-restart resend；conversation sessionId 与 requestId 分离；provider/agent/transport/restart 四层 retry；Provider-reported usage / estimated cost / invoice 三账本；ModelCall Ledger 与 MC-01–14 验收计划 | Pi Durable/AI v1.4.0 GenerationTask/ProviderDoc/ProviderRetry/OpenAI/Anthropic/Codex adapter/Usage 源码 + Claude report36；没有真实 Provider billing/crash 实验 |
 | 报告 68 | OpenAI X-Client-Request-Id 唯一性与 Pi v1.4.0 conversation sessionId 复用差异；OpenAI Background Response responseId/poll/stream cursor/store/ZDR retention；Anthropic Message Batches batchId/custom_id/24h/29d/cancel partial/非ZDR；provider error typed retry 与 provider-job manifest | Pi v1.4.0 固定 adapter 源码 + OpenAI/Anthropic 官方 API docs（2026-10-31）；文档差异已记录，真实 provider API/create-ACK/crash/retention 测试未执行 |
+| 报告 69 | Durable Execution Runtime 选型：Temporal Event History/Activity、Restate Journal/Virtual Objects、DBOS Postgres Workflow/Transactional DataSource；Restate Agent 双 VO/turn loop/MCP/Shell replay 窗口、operator-kill gap、BSL/版本兼容风险；DR/RS/TM/DB conformance POC 计划 | Temporal SDK 1.25.0、Restate Server v1.8.0 + Restate Agent commit 0d69256、DBOS TS source commit 627990fc；固定源码与官方 docs；所有 POC/benchmark/fault tests 未执行 |
 
 ## 4. 研究覆盖率
 
@@ -72,8 +73,8 @@
 | Desktop / SDK 启动、Session、双向协议 | **可读发布版源码范围内主要宿主 / callback / MCP 生命周期静态追踪完成；hosted renderer / native / 动态边界未闭环** | 报告 47–51 已追 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、Agent 权限 / Hooks / pending redelivery、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复、custom3p-mcp URL elicitation 与 utility host shutdown。剩余：hosted renderer reload hydrate、native process job / SSH helper server-side、MCP server reconnect / elicitation recovery 与真实 crash / side-effect 验证 |
 | MCP、宿主工具桥接和安全边界 | **协议取消与 SEP-2663 恢复路径已部分核验** | 报告 39–41 已追 notifications/cancelled、迟到 task handle 后 tasks/cancel、metadata/outcome sidecar、resume/reconnect；继续核对第三方 server 真正停止、cancel 未确认后的恢复义务 |
 | 完整源码比较与独立架构研究 | **首轮源码和 12 同场景对比完成，架构 v0.2 与协议/安全修订已提交待审阅；真实故障验证未执行** | 报告 59 提供比较；60–61 是初版架构/验收；62 定义 Host Operation/UNKNOWN 和 late receipt；63 审查权限/沙箱/历史删除及 Hybrid/Task-native 取舍；64 整合 v0.2 事务、UI event cursor、Task/Host 状态与崩溃恢复。报告 60/61 原断言已注明修订；**未获开发批准** |
-| 横向架构比较 | **报告 59 已完成首轮 12 场景对照，待真实故障证据** | 在 v0.2 中验证 external effect/permission/fencing 的边界；旧报告 32 不作为最终结论 |
-| 新目标架构 | **报告 60–68 已形成 v0.2 + Storage/EventHub/Host Capability/ModelCall/Provider Async Job 合同候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择 A/W/E/X capability profile、Host/sandbox、Context erasure、实际工具幂等能力；明确各 Host manifest 的可信证据与 conformance 测试门槛，并决定 Provider request/usage unknown 的用户可见策略 |
+| 横向架构比较 | **报告 59 已完成 Claude/Pi 12 场景对照；报告 69 新增 Temporal/Restate/DBOS runtime 比较** | 在 v0.2 中验证 external effect/permission/fencing 的边界；旧报告 32 不作为最终结论 |
+| 新目标架构 | **报告 60–69 已形成 v0.2 + Storage/EventHub/Host Capability/ModelCall/Provider Async Job/Durable Runtime 选型候选，待用户审阅，不是已批准设计** | 评审 Hybrid C/Task-native B，选择 A/W/E/X capability profile、Host/sandbox、Context erasure、实际工具幂等能力；明确各 Host manifest 的可信证据与 conformance 测试门槛，并决定 Provider request/usage unknown 的用户可见策略 |
 | 用户确认 | **未获开发批准；等待对 v0.2 和决策项的明确评审** | 用户可要求只修订设计；“继续”不能解释为准许进入开发 |
 
 ## 5. 下一步任务（按顺序执行）
@@ -203,11 +204,12 @@
 - 报告 66 固化 Host manifest、notFound 语义、tombstone/result retention、cancel ack 语义和 HC-01–18 conformance suite；Claude call_id/request_id/worker_epoch 不同，Pi replay=safe 只是注册声明，不是 provider effect 幂等证明。
 - 报告 67 把模型调用纳入 Operation/UNKNOWN 体系：Pi Generation request phase 重开可能重发，sessionId 是 conversation cache/affinity identity 而非 request idempotency key；provider/agent/transport/restart retry 分层；UsageDoc 聚合与 catalog cost estimate 不能证明实际 invoice。
 - 报告 68 发现 Pi v1.4.0 把稳定 conversation sessionId 用作 OpenAI X-Client-Request-Id，与当前 OpenAI per-request uniqueness 文档不一致；补充 OpenAI background response 的 responseId+sequence cursor resume、Anthropic batch 的 batchId/custom_id/retention/cancel semantics，以及 ZDR/HIPAA data policy 约束。
+- 报告 69 比较 Temporal/Restate/DBOS，确认 durable journal/checkpoint 不等于外部 exactly-once；Restate Agent 双 Virtual Object/turn loop 是最接近的 Agent 参考，但存在 operator hard-kill orphan turn、MCP/Shell journal gap、local sandbox 非隔离、多租户/auth 缺失；Restate BSL 1.1 和 1.8.x/SDK 兼容矩阵是选型门槛。Temporal 更成熟且 MIT，但需自建 Agent domain layer；DBOS 在 Postgres transactional step 有优势，外部 effect 仍 at-least-once。
 - Hybrid C 是研究推荐，Task-native B 备选；首发环境与具体协议/技术栈未批准。
 
 ### 未决与下一步
 
-1. 用户审阅报告 59–68，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
+1. 用户审阅报告 59–69，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
 2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
