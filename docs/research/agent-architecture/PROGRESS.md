@@ -1,6 +1,6 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-31（报告 65–69：Storage/EventHub、Host Capability、ModelCall、Provider Job 与 Durable Runtime 选型）  
+> 最后更新：2026-10-31（报告 70：Restate Agent Controller/Turn、Journal Replay、pending operations、外部效果与 sandbox 边界）  
 > 当前阶段：**源码比较首轮完成；独立架构 v0.2 + Storage/EventHub 合同已提交审阅；A/W/E/X capability profile 与产品需求仍待确认**  
 > 开发批准：**未获得；禁止开始实现开发。**
 
@@ -118,7 +118,6 @@
 报告 47–49 追踪 host startup、SDK query / 双向协议、RemoteProcess adoption、MCP 多拓扑、ToolPermissionBroker / EIPC、local spawn、interrupt / stop / close、Idle / pause、app quit、Session / Waiting Input 冷恢复；报告 50 闭环 canUseTool / onUserDialog / SDK-host Hooks、hook_callback generation、timeout / AbortSignal / cancel / late response、CLI reinitialize pending request redelivery 与 snapshot recovery；报告 51 单独追 custom3p-mcp HTTP/SSE utility host、stdio MCP、URL elicitation native consent、MessagePort seq / elicitationId、complete notification、port drain 和 shutdown。
 
 **剩余边界：** hosted claude.ai renderer 的实际 reload hydrate 不在 source-only package；native process job 与 SSH helper/daemon server-side 语义不可从客户端 JS 推断；MCP server reconnect / elicitation recovery、native dialog 与 utility crash 未动态验证。没有额外证据时保持未知，不虚构服务端保证。
-
 ### C. Pi / Chord 子系统（报告 52–58 首轮固定发布版源码研究完成）
 
 - [52：Pi Agent Core v1.4.0 / Agent Loop / Tool dispatch](./52-Pi-Agent-Core-1.4.0发布基线Loop与工具调度复核-2026-10-30.md)
@@ -157,8 +156,7 @@
 1. Intent-before-effect、控制面 DB CAS/Worker epoch 仅是必要条件，不可推断任意外部 effect exactly-once。Host ledger/queryOutcome 的 not-found 若不能排除并发执行，也不能证明 never-started。
 2. 旧 owner 不得提交新 Task transition/越权执行，但可信旧 owner late Receipt 仍应作为 operation effect evidence 被接纳并对账。
 3. Tool Operation 应分为 Control Task phase、Dispatch/Admission、Effect Evidence 和 Cancellation/Policy 四个正交状态域，不能用简单 RUNNING/COMPLETED 单线性状态表达。
-4. Pi Coding Project Trust 和 extension tool_call 并非 mandatory sandbox；任意 shell 获准后内部文件/网络动作需 OS/container 限制，不能逐项由高层审批自动拦截。
-5. Context summary 必须校验 SecurityRevision/redaction lineage；active model omit 与物理删除、派生 summary/索引/备份清理、第三方 Provider 保留完全不同。
+4. Pi Coding Project Trust 和 extension tool_call 并非 mandatory sandbox；任意 shell 获准后内部文件/网络动作需 OS/container 限制，不能逐项由高层审批自动拦截。5. Context summary 必须校验 SecurityRevision/redaction lineage；active model omit 与物理删除、派生 summary/索引/备份清理、第三方 Provider 保留完全不同。
 6. EventSeq 不可简单等于 CommitSeq。需要 conversation/stream-local 序列、同一事务分配、同一 snapshot barrier 读取 cursor；provisional tokens 不占权威 EventSeq。
 7. 建议 Hybrid C（小型 TurnEngine + Durable Coordinator + mandatory Host）为默认研究候选；若 Loop 无法在真实 side effect 前 await commit/permission，或要求完整 phase recovery，应采用 Task-native B。
 
@@ -211,7 +209,7 @@
 
 ### 未决与下一步
 
-1. 用户审阅报告 59–69，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
+1. 用户审阅报告 59–70，明确首发 A/W/E/X capability profile、是否多主机、默认权限/sandbox、历史物理删除、Tool/Provider 幂等与兼容性、HC manifest/conformance 证据标准及 usage/billing unknown 的 UX 策略；评估 provider background/batch 是否适用于长任务及其 data retention/ZDR 限制。
 2. 如用户要求继续研究而不批准，仍只可深化证据或修订架构研究文档，不能启动 FI 实施测试/修改业务代码/Kernel 或开发 PR。
 3. 若外部服务端、Provider/Host 和真实持久存储证据不可得，明确保持未知，不伪造证明。
 
