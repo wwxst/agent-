@@ -1,6 +1,6 @@
 # Agent Kernel｜自研智能体内核
 
-> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1/M2 真实 Provider/可信 Host/Command Inbox 增量已实现（非生产就绪）** · **最后更新：2026-10-27**
+> **项目阶段：v0.1 自主内核开发** · **代码状态：M0 + M1/M2 真实 Provider/可信 Host/Command Inbox 增量已实现（非生产就绪）** · **最后更新：2026-10-31**
 
 本仓库用于从零开发**属于自己的 Agent 内核**。研究并借鉴 Pi Agent、OpenAI Codex、Claude Code 与 DeepSeek Harness 的公开设计，但不以其中任何一个的 Agent 运行时作为核心依赖；本项目独立设计并实现 Agent Loop、会话状态、工具、安全边界和客户端协议。
 
