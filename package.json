@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Independent Agent Kernel with M0 runtime and opt-in SQLite WAL journal (M1 incremental)",
+  "description": "自主 Agent 内核：Kernel、Provider、SQLite 持久化、控制面与可选 Linux Tool Host 隔离",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/*.test.js",
