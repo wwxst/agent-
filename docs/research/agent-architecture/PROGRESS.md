@@ -1,7 +1,7 @@
 # Agent 架构研究进度与跨对话续接点
 
-> 最后更新：2026-10-31（报告 71：Temporal 与 DBOS 执行语义、控制面 API、事务恢复与 Agent 映射）  
-> 当前阶段：**Durable Runtime 源码比较已深入到 Temporal/DBOS 执行器与事务边界；独立架构 v0.2 + Storage/EventHub/Host/ModelCall 合同待用户审阅；A/W/E/X capability profile 与产品需求仍待确认**  
+> 最后更新：2026-10-31（报告 74：Python Deep Agents Harness / Code / ACP / Sandbox Provider）  
+> 当前阶段：Durable Runtime、LangGraph JS/Python 与 Deep Agents JS/Python 已完成固定源码对照；独立架构 v0.2 待用户审阅；Sandbox vendor 合同、ACP cancel 与真实执行边界仍待研究  
 > 开发批准：**未获得；禁止开始实现开发。**
 
 ## 1. 当前目标
@@ -271,3 +271,55 @@
 5. 所有动态验证仍需用户明确批准；本轮没有运行测试、POC、benchmark、chaos、crash injection 或真实外部操作。
 
 **开发批准状态不变：未获得。继续研究不代表允许开发。**
+
+
+## 11. 本轮续接标记（Python Deep Agents Harness / Code / ACP / Sandbox Provider，2026-10-31）
+
+本轮完成报告 74，并更新 README 索引：
+
+- [报告 74：Python Deep Agents Harness、Code、ACP 与 Sandbox Provider 生命周期源码研究](./74-PythonDeepAgentsHarnessCodeACP与SandboxProvider生命周期源码研究-2026-10-31.md)
+
+### 固定源码基线
+
+- Repository：langchain-ai/deepagents
+- Commit：3a217cec7183b601f2b33e0144e09bb50ad44f01
+- deepagents 0.7.32；deepagents-code 0.2.2；deepagents-acp 0.0.13
+- 本轮只读源码、仓库架构文档、Threat Model 和上游测试定义；未运行测试/POC/benchmark/crash injection，也未调用真实 Provider、MCP、Shell 或 ACP 服务。
+
+### 已核验源码事实
+
+1. **Harness / runtime 分层**：Python Deep Agents 是 LangChain create_agent + LangGraph runtime 之上的 Harness；不是新的 Durable Execution Engine。默认 StateBackend，middleware 负责 filesystem/subagent/skills/memory/summarization 等行为。
+2. **Python permission middleware**：FilesystemPermission 支持 allow/deny/interrupt；first-match-wins、默认 allow；检查请求路径和 symlink-resolved target；路径无法解析时按 denied；递归 delete 会分析 deny subtree overlap。execute tool-level permissions 尚未实现。
+3. **LocalShellBackend**：源码明确是 unrestricted host shell，shell=True，无 sandbox/process isolation；deepagents-code 本地模式 virtual_mode=False。virtual_mode 不能约束 shell。timeout handler 返回 124，但源码没有显式 process-group kill；后代进程是否终止仍需动态验证。
+4. **Threat Model**：非交互模式不请求 human approval；非 shell 文件变更/网络工具可无人值守执行；禁用 shell 不等于 read-only 或项目目录 confinement。Threat Model 假设本机单用户，sandbox provider 是 trusted third party；localhost server no-auth 不适合直接多租户化。
+5. **Subagent**：未配置 permissions 时继承父规则；显式配置替换父规则，空数组可清空父规则；tools 未配置时继承父工具。Python PrivateStateAttr 能过滤普通/compiled child 的内部 state，但 forked declarative subagent 有独立 state inheritance 路径，会保留除 _FORK_EXCLUDED_STATE_KEYS 外的大部分 state。
+6. **Async Subagent**：先 threads.create，再 runs.create，最后把 AsyncTask 写入父 graph state；远端任务启动与 parent checkpoint 不是一个事务，存在 orphan task gap。cancel API 返回后本地立即标记 cancelled，未在该路径验证远端 run terminal。
+7. **Deep Agents Code 进程拓扑**：Textual/headless client + 独立 langgraph dev server subprocess，通过 RemoteAgent HTTP+SSE。Server 绑定 127.0.0.1 ephemeral port，Threat Model 明确 LANGGRAPH_AUTH_TYPE=noop、无 auth backend，任何 localhost process 可访问。
+8. **Thread ownership fencing**：OS file lock client reservation + writer gate + owner token；OwnedSqliteSaver 对 aput/aput_writes/adelete_thread 进行 writer_guard；token rotate 使旧 server writer 失效；_finish_mutation 延迟 cancellation，等待 DB mutation settle。该机制是本机跨进程 writer fencing，不是跨主机分布式 lease，也不保护外部 effect。
+9. **Workspace Binding**：SQLite 持久化 thread→workspace identity / policy fingerprint；bind_thread_workspace 原子 create-or-verify，require_thread_workspace 服务端验证；runtime/model fingerprint 与 durable policy fingerprint 分离。
+10. **Pending-work recovery**：RemoteAgent 对 HTTP 409 取消 active runs 后重试；aabandon_pending_work 会给 trailing turn 未配对 tool calls 补 terminal ToolMessages，清除 graph pending state，并重新读取 next/tasks/interrupts 验证。
+11. **Offload API**：稳定 operation_id、hook response replay、checkpoint_id revalidation、state channel allowlist、拒绝写 messages、commit cancellation deferral、cancel wait；但 _active_operations/_operation_outcomes 是进程内 Map，最多保留 1024 条，不是跨重启 durable Operation Ledger。
+12. **Sandbox provider**：统一接口只有 sandbox id / execute(timeout) / filesystem operations / provider get-or-create-delete；没有统一 cancel/kill、egress policy、credential identity、resource quota、retention/delete receipt 或 effect evidence。Modal/Daytona/Runloop/Vercel timeout 语义不同；Vercel kill 失败时源码明确警告 command 可能仍运行并计费。
+13. **Sandbox lifecycle**：owned_sandbox 将部分 provider 的 create/delete 生命周期放在 client supervisor，解决 server SIGTERM 绕过 atexit 的资源泄漏；_open_sandbox shield startup，取消后等待 enter 完成再 close。
+14. **ACP**：无持久 checkpointer 时 prompt 默认注入 MemorySaver；session/load 要求可跨 server restart 的 checkpointer。cancel() 只设置 session flag，prompt 在 stream chunk 间检查；没有直接把 cancel signal 传给 graph/tool/process。上游 load_session 测试复用同一 MemorySaver 对象，不能证明独立进程重启后的 durability。
+
+### 对目标架构的影响（研究建议，不修改 ADR）
+
+- parent Capability Grant 必须是不可扩张 ceiling；child delegation 取交集，不能替换父权限。
+- Child context/state 使用字段分类 allowlist；fork 也必须明确声明继承集。
+- remote subagent launch 使用 durable intent/outbox/reconciliation。
+- checkpoint writer ownership / fencing 值得吸收，但需要部署级 owner/epoch adapter。
+- CancelRequested / CancelAccepted / ProcessTerminated / EffectTerminal 必须分开。
+- Sandbox provider manifest 必须声明 egress、identity、resource limits、snapshot/volume durability、kill/query、retention/delete 与 effect evidence。
+- ACP/CLI/HTTP cancellation 需要向实际 Host executor 传播，不能只更新 UI flag。
+- Workspace identity 与 policy revision 应由 server 权威持久化；model/runtime change 不应隐式改变 workspace 权限。
+
+### 新增未决问题与下一步
+
+1. 审计 Modal、Daytona、Runloop、Vercel、AWS AgentCore、NVIDIA OpenShell 官方安全文档和合同：网络 egress、metadata endpoint、secret injection、VM/container isolation、volume/snapshot consistency、retention、delete receipt、hard kill。
+2. 研究 LangGraph Server 本地 SQLite checkpointer 的 WAL/fsync、multi-worker/shared storage、server auth、restart 与 owner semantics。
+3. 深入 ACP cancellation：长时间阻塞工具、graph cancel、process kill、session/load 跨进程持久化的真实合同。
+4. 继续核验 Python/JS parity，尤其 filesystem TOCTOU、fork state inheritance、QuickJS/PTC、MCP、provider cancellation。
+5. 用户提供的 Claude Desktop 3.1623.1 / Claude Code 2.1.304 reverse-kit 已检查 manifest 与 local-agent evidence 文档；后续应将该资料包 evidence 纳入统一索引，并继续与报告 47–51 对照。静态 reverse-kit 不能代替原始运行时或动态验证。
+
+**本轮所有测试、POC、benchmark、crash/race injection 和真实 Provider 操作均 NOT RUN。开发批准状态仍未获得；用户“继续”只授权继续研究。**
