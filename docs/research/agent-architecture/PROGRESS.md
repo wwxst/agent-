@@ -323,3 +323,46 @@
 5. 用户提供的 Claude Desktop 3.1623.1 / Claude Code 2.1.304 reverse-kit 已检查 manifest 与 local-agent evidence 文档；后续应将该资料包 evidence 纳入统一索引，并继续与报告 47–51 对照。静态 reverse-kit 不能代替原始运行时或动态验证。
 
 **本轮所有测试、POC、benchmark、crash/race injection 和真实 Provider 操作均 NOT RUN。开发批准状态仍未获得；用户“继续”只授权继续研究。**
+
+
+## 12. 本轮续接标记（LangGraph Python Pregel Durability / Agent Server Queue / Auth / SQLite 与 PostgreSQL，2026-10-31）
+
+新增 [报告 75：LangGraph Python Pregel Durability、Agent Server 队列、认证与恢复边界](./75-LangGraphPythonPregelDurability与AgentServer队列认证恢复边界源码研究-2026-10-31.md)。
+
+### 固定源码基线
+
+- Repository：langchain-ai/langgraph
+- Commit：e5c961d7fbe7ca6fdd4c94c84d90511372514d55
+- langgraph 1.2.19；langgraph-checkpoint-sqlite 3.1.3；langgraph-checkpoint-postgres 3.2.0
+- Threat Model 自动生成于 2026-03-28，基于旧 commit 0ba22143；它明确将 LangGraph Server / langgraph-api 列为闭源、研究范围外，并声明自身非权威。
+- CLI 的 dev 命令导入 langgraph_api.cli.run_server；Docker base image 包含闭源 API / executor；integration compose 注释确认 API image 包含 langgraph_runtime_postgres、langgraph_license 与 Go core-server。本轮不把 Server 文档描述伪装成公开源码事实。
+
+### 新确认的源码事实与架构结论
+
+1. **Server topology**：CLI 默认 combined_queue_worker；distributed 模式切换为 langgraph-executor，并生成独立 Executor 部署。完整 Orchestrator / Queue / Go core-server 实现不在开源仓库。
+2. **Agent Server data plane**：官方文档说明 PostgreSQL 保存 threads/runs/assistants/crons/memory，并作为默认 checkpoint backend；即使 checkpoint 改用 MongoDB，PostgreSQL 仍然必需。
+3. **Redis 不是事实源**：Redis List 只保存 Worker wake-up Sentinel；Worker 从 PostgreSQL 读取 Run。Cancellation 使用 Redis string + Pub/Sub；Streaming output 通过 Pub/Sub 转发但不保存在 Redis；attempt number 仅短期保存在 Redis，官方文档当前描述的 transient PostgreSQL error retry 最多 3 次。
+4. **Worker semantics**：官方文档声明 Worker Lease、同一 Thread 同时最多一个 Run、Worker interrupted 后从最后 checkpoint 恢复；Lease TTL、heartbeat、fencing epoch、stale worker 拒写细节仍未知。
+5. **Python Pregel durability**：sync 在 after_tick 后等待 checkpoint future；async 后台保存并可继续执行；exit 仅在 graph exit 路径保存。Checkpoint futures 串行化，DeltaChannel writes 有前置等待。
+6. **Replay boundary**：Checkpoint durability 不是外部副作用 exactly-once。工具成功但 checkpoint 尚未 durable 时，恢复可能重跑 Node / Tool；这是控制流推断，尚未动态验证。
+7. **SQLite WAL**：SqliteSaver 声明不扩展到多线程；AsyncSqliteSaver 使用 aiosqlite + instance asyncio lock，文档不推荐 production。两者 setup 都设置 WAL，但没有显式覆盖 synchronous；put 与 put_writes 分开 commit。
+8. **SQLite deployment constraint**：SQLite WAL 需要同主机共享内存，不能跨主机网络文件系统共享；WAL 只有一个 writer。SQLite 官方记录 WAL-reset bug 影响 3.7.0–3.51.2，3.51.3+ 修复；LangGraph 包不固定 runtime SQLite 版本。
+9. **PostgreSQL transaction boundary**：PostgresSaver.put 将 blobs 与 checkpoint row 放在同一个 pipeline/transaction；put_writes 是独立事务。Checkpointer 的事务范围不是整个 superstep、Run status 和外部 effects 的统一事务。
+10. **Owner boundary**：Core checkpoint schema 使用 thread/namespace/checkpoint/task keys，不含 tenant_id / user_id / lease_owner / worker_epoch；PostgresSaver lock 是实例级进程内锁，不是分布式 fencing。
+11. **AuthN/AuthZ**：官方文档明确 self-hosted 默认没有 authentication。AuthN (@auth.authenticate) 与资源级 AuthZ (@auth.on) 分开；没有 global handler 时未匹配授权请求默认通过；最具体 handler 会覆盖而不是累积调用 global handler。Thread owner 需要创建时写 metadata、读取时 filter；Store 需要重写 namespace。
+12. **架构影响**：Run Queue / Checkpoint / Operation-Effect Ledger / Event Log / Tenant Authority 必须分开；Redis 只做可重建协调层；Run lease 需要 fencing epoch；外部 effect 需要 idempotency/receipt/UNKNOWN；self-hosted 默认 deny；SQLite 只作为单机/开发 adapter。
+
+### 新增未决问题与下一步
+
+1. 继续审计 Agent Server Double-texting / multitask_strategy / interrupt / cancel / retry，核对同 Thread Run admission 与终态。
+2. 研究 v3 streaming event cursor、snapshot consistency、reconnect/replay 与跨 API/Worker 迁移。
+3. Worker Lease heartbeat/TTL/fencing、hard-kill、Redis outage 与 Pending Run orphan recovery 仍无公开实现源码；继续寻找官方证据，找不到就保留 U（未知）。
+4. 核对 LangGraph JS 1.5.3 与 Python 1.2.19 的 durability / Pending Writes / Postgres transaction / Auth parity。
+5. 将 LangGraph 与 Temporal / Restate / DBOS / Pi Durable / Claude Host 的 Run queue、writer fencing、external effect receipt 对照，决定是否补充 v0.2 研究合同。
+6. 若以后获准进行 SQLite 动态验证，先记录 sqlite3.sqlite_version、effective PRAGMA synchronous、文件系统、WAL sidecar 与 crash/power-loss 条件。
+
+### 验证与阶段门禁
+
+本轮只读源码、官方文档和上游测试定义；没有运行测试、POC、benchmark、crash/race injection、真实 Provider / Tool / Server 请求。没有修改业务代码、Kernel、开发测试或 ADR。
+
+**PR #49 继续保持 Draft / research-only。开发批准仍未获得。**
