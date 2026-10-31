@@ -20,7 +20,7 @@ export interface KernelOptions { readonly maxSteps?: number; readonly maxToolCal
 export interface TurnResult { readonly turnId: TurnId; readonly status: 'completed' | 'cancelled' | 'failed'; readonly assistant?: AssistantMessage; readonly errorCode?: string; }
 export type DeltaListener = (delta: string, context: Readonly<{sessionId: string; turnId: string}>) => void;
 
-/** M0 is a single-process prototype. Durable EventStore and real ToolHost are future adapters. */
+/** Kernel execution state machine. Durable storage, leases and isolated Tool Hosts are supplied by outer runtime adapters. */
 export class AgentKernel {
   private readonly active = new Map<SessionId, ActiveTurn>();
   private readonly seq = new Map<SessionId, number>();
