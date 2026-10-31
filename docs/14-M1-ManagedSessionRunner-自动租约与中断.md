@@ -2,6 +2,18 @@
 
 > 状态：**已实现单次操作的租约自动获取、续租、Kernel 协作中断和释放**；测试用的是可信只读工具和本地 SQLite。**尚非生产级独立 Tool Host / 安全沙箱 / exactly-once 外部副作用协议。**
 
+## 当前状态校准（2026-10-31）
+
+本文记录的是 ManagedSessionRunner 首次落地时的历史实现边界，不能直接代表当前仓库全部能力。后续已经新增并记录：
+
+- Tool Intent/Receipt 持久审计：见 [15 号文档](15-M1-Tool-Intent-Receipt-执行审计.md)。
+- 独立 Node 子进程 Tool Host 与 Host 执行账本：见 [16 号文档](16-M1-子进程ToolHost-与执行账本.md)。
+- Kernel/Host 双账本只读对账：见 [17 号文档](17-M1-双账本只读对账与证据判定.md)。
+- 证据绑定的不可变人工复核记录：见 [18 号文档](18-M1-证据绑定人工审核记录.md)。
+- M3 Linux Bubblewrap、cgroup、进程身份校验和 seccomp 增量：见 [27–33 号文档](27-M3-Linux-ToolHost-Bubblewrap-强制隔离.md)及相关文档。
+
+因此，本文后续“明确未完成和限制”及“下一步”部分应理解为该功能最初交付时的历史说明；当前整体状态以根目录 README、[开发路线与验收](08-开发路线与验收.md)和上述后续实现记录为准。后续能力仍有生产级鉴权、完整隔离策略及真实 cgroup 正向验收等缺口，不能据此宣称生产就绪。
+
 ## 目标和接入点
 
 新增 `packages/session-runtime/src/index.ts` 的 `ManagedSessionRunner`，作为可信调用方唯一推荐的 M1 单 Session 入口：
